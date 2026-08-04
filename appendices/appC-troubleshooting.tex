@@ -1,0 +1,28 @@
+\chapter{Troubleshooting}
+\label{app:troubleshooting}
+
+\noindent
+Symptom, cause, fix. Organised by what you observe rather than by what is wrong,
+because when you need this page you do not yet know what is wrong.
+
+\chapterstub{
+\textbf{Contents.} Grouped by symptom. (C.1) The service becomes unresponsive
+under load. (C.2) \code{Task exception was never retrieved}, and its silent
+cousin, the garbage-collected task. (C.3) The process will not shut down.
+(C.4) \code{coroutine has no attribute}, and mixing sync and async paths.
+(C.5) \api{InvalidUpdateError} from parallel writes. (C.6) State not persisting
+between turns --- almost always a missing \code{thread\_id}. (C.7) The
+conversation vanished after a restart --- almost always the in-memory saver.
+(C.8) \api{GraphRecursionError} and the agent that will not stop. (C.9) The same
+side effect happened twice. (C.10) The model calls the wrong tool. (C.11) The
+model stopped calling tools at all as the tool count grew. (C.12) Context
+overflows, or quality degrades before it overflows. (C.13) Costs rose without a
+traffic change. (C.14) Streaming works locally and buffers in production.
+(C.15) Rate limits and 429s. (C.16) A resumed interrupt re-ran work.
+(C.17) Evaluation scores moved and nothing was deployed.
+
+\textbf{Convention.} Every entry states the observable symptom first, then the
+cause, then the fix, then a cross-reference to the chapter that explains why.
+Where a symptom has several causes, they are ordered by how often each turns out
+to be the one.
+}

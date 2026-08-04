@@ -1,0 +1,54 @@
+\chapter{Persistence, Durability and Resilience}
+\label{ch:persistence}
+
+\begin{quote}\itshape
+A checkpoint does not make a node safe. It makes it re-runnable, which is not the
+same thing.
+\end{quote}
+
+\noindent
+This chapter is the strongest card in the deck for an engineer arriving from a
+distributed-systems background, because it is the one place where LangGraph is
+doing something you have already had to reason about: durable workflow execution
+with replay. The mechanism is straightforward. The consequence --- that resuming
+re-runs the whole node, including the model call, the HTTP request and the
+side effect --- is where systems break, and it is where most candidates and most
+tutorials stop.
+
+\chapterstub{
+\textbf{Argument.} The node boundary is the replay boundary. Everything after the
+last checkpoint executes again. Therefore side effects must be idempotent or
+isolated behind their own node, and non-deterministic values must be produced
+inside a checkpointed step rather than recomputed.
+
+\textbf{Sections.} (9.1) Checkpointer versus store: scope, contents, and the two
+kinds of memory. (9.2) The backends: in-memory, SQLite, Postgres, Redis --- and
+the async variants, with the failure mode of using a sync saver in an async
+service. (9.3) \code{thread\_id} as the primary key; what happens without one.
+(9.4) \api{Store}: long-term memory, namespacing, semantic search. (9.5) Memory
+types --- semantic, episodic, procedural --- and background writes. (9.6) Durable
+execution: replay, idempotency keys, the three durability modes
+(\code{sync}/\code{async}/\code{exit}) and what each trades. (9.7) Designing a
+node as a replay boundary, worked on a payment-like operation. (9.8) Node-level
+resilience --- \api{RetryPolicy}, \code{timeout=} on a node,
+\api{NodeTimeoutError}. (9.9) Loop control: \code{recursion\_limit},
+\api{GraphRecursionError}, \api{RemainingSteps}. (9.10) \api{CachePolicy} and
+deduplicating work across runs.
+
+\textbf{Listings.} A conversation that survives a process restart, with the test
+that proves it; a deliberately induced crash mid-graph, showing the duplicated
+side effect and then the idempotency key that fixes it; retry and timeout policies
+on a flaky node; a recursion limit hit and diagnosed.
+
+\textbf{Diagrams.} \code{lg-checkpoint-timeline} --- supersteps and the
+checkpoints between them, with a crash and resume marked. \code{lg-replay-boundary}
+--- what re-executes on resume, shaded over a node. \code{lg-checkpointer-vs-store}
+--- the two scopes.
+
+\textbf{Mini-project.} Stage 06: \code{AsyncPostgresSaver}, a store for user
+preferences, an idempotency key on the email send, retry and timeout policies,
+and a restart-survival test.
+
+\textbf{Source topics covered.} Part~IV 4.9--4.15. 4.13 and 4.14 are the source's
+top-priority gaps and get full sections here.
+}

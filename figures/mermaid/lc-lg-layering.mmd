@@ -1,0 +1,36 @@
+graph TD
+  subgraph app["Your application"]
+    A["FastAPI service"]
+  end
+
+  subgraph lc["langchain 1.x — the convenience layer"]
+    B["create_agent()"]
+    C["Middleware hooks"]
+    D["init_chat_model, tools,<br/>structured output"]
+  end
+
+  subgraph lg["langgraph — the runtime"]
+    E["CompiledStateGraph"]
+    F["Pregel / BSP executor"]
+    G["Checkpointer"]
+    H["Streaming"]
+    I["Interrupts"]
+  end
+
+  subgraph core["langchain-core — the contracts"]
+    J["Runnable, messages,<br/>tool base classes"]
+  end
+
+  A --> B
+  B -.->|"returns a"| E
+  B --> C
+  B --> D
+  E --> F
+  F --> G
+  F --> H
+  F --> I
+  D --> J
+  E --> J
+
+  classDef layer fill:#F4F6F8,stroke:#1F4E79,stroke-width:1px
+  class A,B,C,D,E,F,G,H,I,J layer

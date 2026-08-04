@@ -1,0 +1,52 @@
+\chapter{Tools and Structured Output}
+\label{ch:tools}
+
+\begin{quote}\itshape
+The docstring is not documentation. It is part of the prompt.
+\end{quote}
+
+\noindent
+A tool is a function the model can decide to call, and the thing engineers
+consistently underestimate is that the function's name, its type hints, its field
+descriptions and its docstring are all sent to the model. They are not
+commentary --- they are the specification the model routes on. A tool that works
+perfectly and is described vaguely will be called at the wrong times, and nothing
+in your test suite will tell you.
+
+\chapterstub{
+\textbf{Argument.} Tool selection quality is an engineering property with a
+measurable degradation curve. It falls off somewhere around fifteen to twenty
+tools, and there are three structural answers --- a selector, subagents, or MCP
+namespacing --- rather than a prompt-wording answer.
+
+\textbf{Sections.} (6.1) \api{@tool}: the decorator, the inferred schema, and what
+the model actually receives. (6.2) Explicit schemas with \code{args\_schema} and
+Pydantic \api{Field} descriptions. (6.3) Async tools --- and what LangChain does
+with a sync-only tool under \api{ainvoke} (a thread-pool hop, which works and
+costs). (6.4) Tool errors: how a failure becomes a \api{ToolMessage} the model can
+recover from, and why the default is a configuration decision rather than a given.
+(6.5) The tool-calling mechanics: the round trip, parallel tool calls, and what
+the message list looks like at each step. (6.6) Scaling past twenty tools: the
+selector middleware, subagent partitioning, MCP. (6.7) Structured output:
+\api{response\_format}, and the three strategies --- provider-native, tool-based,
+automatic --- with the cases each is right for. (6.8) Why prompted JSON is a
+pre-1.0 pattern and is not coming back.
+
+\textbf{Listings.} Five async tools for the mini-project (search, SQL, HTTP,
+metrics, send-email); the same tool with a poor and a good description, with a
+selection-accuracy measurement between them; error handling that returns a usable
+message rather than a stack trace; structured output into a Pydantic model.
+
+\textbf{Diagrams.} \code{tool-round-trip} --- sequence diagram of a two-tool turn
+including a parallel call. \code{tool-schema-to-prompt} --- which parts of a
+Python function end up in the model's context.
+
+\textbf{Measurement.} Tool-selection accuracy over a fixed set of thirty queries,
+with five tools then twenty, and with terse then descriptive docstrings. Four
+cells, twenty runs each. This is the chapter's original data and it is cheap.
+
+\textbf{Mini-project.} Stage 03: the five tools, async, with schemas, tests and
+a fake-model harness.
+
+\textbf{Source topics covered.} Part~III 3.8--3.10; Part~V 5.7 (partial).
+}

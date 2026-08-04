@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LangChain, LangGraph and Async Python</title>
+<meta name="description" content="A practitioner's guide to LangChain 1.x, LangGraph and async Python for engineers arriving from .NET.">
+<style>
+  :root {
+    --blue: #1F4E79; --teal: #0E7C7B; --amber: #B26A00; --red: #9B2C2C;
+    --grey: #5A5A5A; --light: #F4F6F8; --bg: #ffffff; --fg: #1a1a1a;
+    --border: #D8DEE4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e8eaed; --light: #1e2328; --grey: #9aa3ab;
+      --blue: #7BAEDC; --teal: #4FC3C2; --amber: #E0A24A; --red: #E08A8A;
+      --border: #2b3238;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); line-height: 1.15; color: var(--blue); margin: 0 0 .4rem; }
+  .sub { color: var(--grey); font-size: 1.1rem; margin: 0 0 2rem; }
+  h2 { font-size: 1.25rem; color: var(--blue); margin: 2.5rem 0 .75rem; }
+  a { color: var(--teal); }
+  .banner {
+    background: var(--light); border-left: 3px solid var(--red);
+    padding: .9rem 1.1rem; margin: 1.5rem 0 2rem; border-radius: 0 4px 4px 0;
+  }
+  .banner strong { color: var(--red); }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .94rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--grey); font-weight: 600; white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+  code { background: var(--light); padding: .1rem .35rem; border-radius: 3px; font-size: .9em; }
+  ul { padding-left: 1.2rem; }
+  li { margin: .35rem 0; }
+  footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--grey); font-size: .9rem; }
+  .pill {
+    display: inline-block; background: var(--light); border: 1px solid var(--border);
+    border-radius: 999px; padding: .15rem .7rem; font-size: .82rem; color: var(--grey); margin-right: .4rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>LangChain, LangGraph and Async Python</h1>
+<p class="sub">Building production agents — for engineers arriving from .NET.</p>
+
+<p>
+  <span class="pill">17 chapters</span>
+  <span class="pill">6 appendices</span>
+  <span class="pill">langchain 1.3.x · langgraph 1.2.x</span>
+</p>
+
+<div class="banner">
+  <strong>This is a skeleton, not a draft.</strong> The structure, build, diagram
+  pipeline and per-chapter briefs are in place and the book compiles clean.
+  No chapter has been written yet. Every chapter currently prints a visible
+  <em>not yet written</em> marker carrying its own brief, and CI publishes the
+  count on every build — so the page count never flatters the state of the work.
+</div>
+
+<h2>Why</h2>
+<p>
+  LangChain 1.0 landed on 22 October 2025. It removed the three abstractions
+  almost every earlier tutorial was built on — <code>AgentExecutor</code>,
+  <code>initialize_agent</code> and <code>LLMChain</code> — and inverted the
+  relationship between the two libraries: <code>langchain</code> is now a thin
+  layer over <code>langgraph</code>'s runtime, and <code>create_agent</code>
+  returns a compiled LangGraph graph.
+</p>
+<p>
+  The consequence is unusually severe. <strong>Most LangChain material on the
+  internet describes an architecture that no longer exists</strong> — search
+  results, blog posts, and a very large amount of model training data all predate
+  the split.
+</p>
+
+<h2>Contents</h2>
+<div class="scroll">
+<table>
+  <tr><th>I — Foundations</th><td>The Landscape · Python for the .NET Engineer · Asynchronous Python · Cancellation, Timeouts and Resilience</td></tr>
+  <tr><th>II — LangChain 1.x</th><td>Models, Messages and Runnables · Tools and Structured Output · <code>create_agent</code> and Middleware</td></tr>
+  <tr><th>III — LangGraph</th><td>StateGraph · Persistence, Durability and Resilience · Interrupts, Time Travel and Streaming · Multi-Agent Systems</td></tr>
+  <tr><th>IV — Production</th><td>Context Engineering · Serving Agents · Observability, Evaluation and Testing · Security, Cost and Deployment</td></tr>
+  <tr><th>V — Perspective</th><td>The Ecosystem, the Alternatives and the Criticism · The Capstone</td></tr>
+  <tr><th>Appendices</th><td>Packages and migration · API cheat sheet · Troubleshooting · Interview preparation · Glossary and sources · Figure manifest</td></tr>
+</table>
+</div>
+
+<h2>Five experiments, none yet run</h2>
+<p>
+  The differentiator is meant to be original measurement rather than assertion.
+  Five experiments are fully specified in the chapters and none has been run.
+  Appendix B's tables are deliberately empty and stay that way until they have
+  been; until then every comparative claim is explicitly labelled as judgement.
+</p>
+<p>
+  The largest compares a single agent against all five multi-agent topologies on
+  one fixed task — turn count, token cost, latency and success rate, twenty runs
+  each, medians and spreads rather than best runs.
+</p>
+
+<h2>The mini-project</h2>
+<p>
+  The book builds one system across its length, a stage per chapter:
+  <a href="https://github.com/konradcinkusz/llm-book-mini-project">Ops Copilot</a>,
+  an internal operations assistant served over FastAPI, backed by Postgres, that
+  can take exactly one irreversible action and only behind a human approval gate.
+</p>
+<p>
+  Every stage's tests pass without a single real model call. A stage that needs a
+  live provider to demonstrate anything has been designed wrong.
+</p>
+
+<h2>Links</h2>
+<ul>
+  <li><a href="https://github.com/konradcinkusz/llm-book">Source repository</a></li>
+  <li><a href="https://github.com/konradcinkusz/llm-book-mini-project">Ops Copilot — the mini-project</a></li>
+  <li><a href="https://github.com/konradcinkusz/maf-book">Microsoft Agent Framework for .NET Engineers</a> — the companion volume</li>
+</ul>
+
+<footer>
+  Prose CC BY-NC-SA 4.0 · code MIT. Not affiliated with or endorsed by LangChain Inc.
+</footer>
+
+</div>
+</body>
+</html>

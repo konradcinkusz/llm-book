@@ -1,0 +1,223 @@
+\chapter*{Introduction}
+\addcontentsline{toc}{chapter}{Introduction}
+\markboth{INTRODUCTION}{INTRODUCTION}
+
+\section*{Who this book is for}
+
+This book is written for the working backend engineer who is fluent in a typed,
+async-first ecosystem --- most likely .NET --- and who is now being asked to put
+a Python agent into production.
+
+It assumes you have shipped services. You know what a connection pool is for,
+why idempotency matters on a retried request, what a cancellation token does,
+and roughly what you would look at first when a service degrades under load. It
+assumes you have written \code{async}/\code{await} somewhere, in some language.
+
+It does \emph{not} assume you know Python well. Chapter~\ref{ch:python} exists
+precisely because the language is the smallest part of the gap and the part most
+likely to make an otherwise strong engineer write code a reviewer dislikes.
+It does not assume you have built an agent before, and it does not assume you
+have read a paper about large language models.
+
+It assumes one more thing, which is less common: that you are sceptical. The
+overwhelming majority of agent material published since 2023 demonstrates that a
+thing is \emph{possible} without asking whether it is \emph{reliable},
+\emph{observable}, or \emph{affordable}. A notebook that calls three tools and
+prints a paragraph proves nothing about a service that must hold two hundred
+concurrent conversations, survive a pod restart mid-conversation, wait three days
+for a human to approve an irreversible action, and stay inside a budget. This
+book is organised around the second kind of system.
+
+\section*{What this book is not}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item It is not an introduction to large language models.
+        Chapter~\ref{ch:landscape} assumes you know roughly what a token, a
+        context window, and a tool call are.
+  \item It is not a Python tutorial. Chapter~\ref{ch:python} covers what a
+        senior engineer from another ecosystem actually gets wrong, which is a
+        much smaller and more specific set of things than a tutorial covers.
+  \item It is not prompt engineering. There are exactly two places where the
+        wording of a prompt is treated as an engineering concern: tool
+        descriptions, because they measurably change tool-selection accuracy,
+        and judge prompts, because a miscalibrated judge silently corrupts every
+        number downstream of it.
+  \item It is not a LangChain advocacy document. Chapter~\ref{ch:ecosystem} sets
+        out the alternatives, the cases where no framework is the right answer,
+        and the criticisms of LangChain that are actually well founded --- as
+        distinct from the ones that were true in 2023 and have been repeated ever
+        since.
+\end{itemize}
+
+\section*{Why this book exists}
+
+On 22~October~2025, LangChain and LangGraph both reached 1.0, and the
+relationship between them changed. \pkg{langchain} stopped being a large library
+of chains and became a thin, opinionated layer over \pkg{langgraph}'s execution
+runtime. \api{AgentExecutor}, \api{initialize\_agent} and \api{LLMChain} --- the
+three things every tutorial written before that date is built on --- were
+retired. Retrievers, indexing and the chain abstractions moved to
+\pkg{langchain-classic}, which is in maintenance.
+
+The practical consequence is unusually severe: \emph{most of the LangChain
+material on the internet describes an architecture that no longer exists}. Search
+results, blog posts, conference talks and a very large amount of training data
+all predate the split. It is entirely possible to follow a well-written,
+well-rated tutorial from 2024 and end up with code that no current maintainer
+would accept.
+
+That is the gap this book is written into. The 1.0 line carries a commitment to
+no breaking changes before 2.0, so for the first time the material is worth
+writing down carefully rather than provisionally.
+
+\section*{How the book is organised}
+
+Five parts, seventeen chapters.
+
+\textbf{Part I --- Foundations}
+(Chapters~\ref{ch:landscape}--\ref{ch:cancellation}) covers the ground the rest
+of the book stands on: the state of the ecosystem and what died in 1.0, the
+Python a senior engineer needs and the Python idioms they tend to get wrong, and
+then two chapters on \code{asyncio}. Two, not one, because the job advertisement
+that sent you here said ``async Python'' for a reason: an agent is a workload in
+which better than ninety per cent of wall-clock time is spent waiting on a
+network, and every interesting failure mode in
+Chapter~\ref{ch:cancellation} --- a swallowed cancellation, an unbounded queue, a
+blocking call in a coroutine --- shows up in production rather than in a notebook.
+
+\textbf{Part II --- LangChain 1.x} (Chapters~\ref{ch:models}--\ref{ch:agents})
+covers the layer most people mean when they say ``LangChain'': models, messages
+and the \api{Runnable} interface; tools and structured output; and then
+\api{create\_agent} and the middleware system that is 1.0's flagship addition.
+
+\textbf{Part III --- LangGraph} (Chapters~\ref{ch:stategraph}--\ref{ch:multi-agent})
+covers the runtime underneath, and is the longest and most important part of the
+book. State and reducers, the Pregel execution model, persistence and durable
+execution, interrupts and time travel, streaming, and multi-agent topologies with
+an honest account of what they cost.
+
+\textbf{Part IV --- Production} (Chapters~\ref{ch:context}--\ref{ch:security})
+covers what you need before any of the above is allowed near a user: managing the
+context window as the scarce resource it is, serving agents over HTTP with
+streaming and concurrency control, observability and evaluation, and then
+security, cost and deployment.
+
+\textbf{Part V --- Perspective} (Chapters~\ref{ch:ecosystem}--\ref{ch:capstone})
+steps outside the framework --- MCP, Deep Agents, the competing SDKs, the cases
+for using nothing at all --- and then reviews the finished mini-project as a set
+of decisions rather than a set of files.
+
+Chapters are independent enough to read out of order after Part~I, with two
+exceptions: Chapters~\ref{ch:stategraph} and~\ref{ch:persistence} must be read in
+sequence, and Chapter~\ref{ch:cancellation} assumes
+Chapter~\ref{ch:asyncio}.
+
+\section*{The mini-project}
+
+The book builds one system across its length, in stages. It is called
+\textbf{Ops Copilot}: an internal operations assistant, exposed as a FastAPI
+service, that answers questions about orders and incidents by querying real
+systems, and that can take one irreversible action --- sending an email --- only
+behind a human approval gate.
+
+\begin{center}
+\code{github.com/konradcinkusz/llm-book-mini-project}
+\end{center}
+
+The choice is deliberate. It is small enough to hold in your head and large
+enough to be genuinely hard in the places that matter: it needs concurrency, it
+needs persistence that survives a restart, it needs a human in the loop, it needs
+to stream, it needs to not send the same email twice when a node replays, and it
+needs to cost a defensible amount of money per conversation.
+
+Each chapter that adds to it opens a \emph{Mini-project} callout naming the stage
+it builds and what that stage must demonstrate. Every stage has tests, and the
+tests run without a single real model call.
+
+\section*{Conventions}
+
+Six kinds of callout appear throughout.
+
+\begin{note}
+Background, context, or a design rationale. Skippable on a first pass.
+\end{note}
+
+\begin{warning}
+A failure mode that will cost you an afternoon if you meet it unprepared.
+Not skippable.
+\end{warning}
+
+\begin{versionbox}
+Applies to a surface that is new, experimental, or likely to move between minor
+versions. The LangChain ecosystem releases weekly; check the release notes before
+relying on anything marked this way.
+\end{versionbox}
+
+\begin{verifybox}
+A listing transcribed from documentation or release notes rather than executed by
+the author against the pinned versions. Run it before you copy it into anything
+that matters.
+\end{verifybox}
+
+\begin{dotnetbox}
+A translation of the surrounding idea into .NET terms. These carry no content of
+their own --- skip every one of them and you lose nothing but a shortcut.
+\end{dotnetbox}
+
+\begin{projectbox}
+The stage of the mini-project that this section builds, and what it must
+demonstrate when it is finished.
+\end{projectbox}
+
+\noindent
+Inline, \pkg{langgraph} denotes a distribution on PyPI, \api{create\_agent} an
+API member, and \code{uv sync} a literal command or file path.
+
+\section*{On versions, and why this book will rot}
+
+LangChain is not one package on one version line. It is a family of distributions
+that release independently and frequently: at the time of writing,
+\pkg{langchain}~\lcver{}, \pkg{langchain-core}~\lccorever{},
+\pkg{langgraph}~\lgver{}, and a separate version line for each provider
+integration and each checkpointer backend. A version number quoted for one of
+them tells you very little about the others.
+
+Every listing in this book is written against the versions on the title page, and
+the mini-project pins them exactly in its lockfile. A CI job compares those pins
+against PyPI on every build, so a stale pin is visible rather than discovered by
+a reader.
+
+The honest position: the conceptual material --- the execution model, reducers,
+the replay semantics of a node, the economics of a supervisor --- will outlive
+many minor versions, because those are load-bearing and 1.0 committed to them.
+The exact import paths and keyword arguments will not. Treat the listings as
+something you run, not as scripture. Where the book has not run something, it
+says so in a box rather than rounding up.
+
+\section*{Environment assumptions}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \pyver{} (\pymin{} is the floor LangChain 1.x supports; the book uses
+        \code{asyncio.TaskGroup} and \code{asyncio.timeout} throughout, which
+        need 3.11+).
+  \item \code{uv} for environment and dependency management.
+        Chapter~\ref{ch:python} explains why, and what to do if your organisation
+        has standardised on something else.
+  \item Docker, for Postgres from Chapter~\ref{ch:persistence} onwards.
+  \item An API key for at least one model provider with tool-calling support.
+        The book is provider-neutral; the mini-project runs against any of them.
+  \item Optional: a LangSmith account for Chapter~\ref{ch:observability}. That
+        chapter also covers the self-hosted alternatives, because not every
+        client will accept a SaaS tracing backend.
+\end{itemize}
+
+Chapter~\ref{ch:python} walks the setup end to end and assumes none of the above
+is installed.
+
+\vspace{1.5em}
+\noindent\rule{\linewidth}{0.4pt}
+\vspace{0.5em}
+
+\noindent\emph{Konrad Cinkusz\\ \today}
+
+\cleardoublepage

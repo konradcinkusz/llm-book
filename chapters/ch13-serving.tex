@@ -1,0 +1,55 @@
+\chapter{Serving Agents: FastAPI, Streaming and Concurrency}
+\label{ch:serving}
+
+\begin{quote}\itshape
+This is the chapter the job advertisement was actually about.
+\end{quote}
+
+\noindent
+Everything so far has been an agent. This chapter is about the service around it:
+one process holding hundreds of concurrent conversations, streaming tokens to
+browsers, surviving client disconnections, respecting a provider's rate limit,
+and shutting down without losing work. It is where Part~I's \code{asyncio}
+material and Part~III's persistence material meet, and it is the point at which
+a demo becomes a system.
+
+\chapterstub{
+\textbf{Argument.} Because state lives in Postgres rather than in the process,
+pods are stateless and scale horizontally --- but that same property creates the
+one hazard the architecture does not solve for you: two concurrent runs on one
+\code{thread\_id}. That needs a lock or a per-thread queue, and it is the thing
+most implementations miss.
+
+\textbf{Sections.} (13.1) Why the agent is built once in \code{lifespan} and not
+per request. (13.2) Dependency injection in FastAPI, and the shape that stays
+testable. (13.3) Streaming to a client: server-sent events versus WebSockets,
+with the event format worth committing to. (13.4) Client disconnection ---
+cancel the run, or finish it in the background to preserve the checkpoint? Both,
+with the cases for each. (13.5) Backpressure: a slow consumer and an unbounded
+queue is a memory leak with a delay fuse. (13.6) Rate limiting: a process-wide
+semaphore, jittered backoff, and model fallback. (13.7) The three timeout levels
+in a request context. (13.8) Blocking tools inside an async service, and the
+thread-pool budget. (13.9) Multiple workers: shared checkpointer, stateless pods,
+and enforcing one active run per thread. (13.10) Long-running work: queues,
+background workers, cron, and why it does not belong in a request.
+
+\textbf{Listings.} The complete service --- \code{lifespan}, chat endpoint, SSE
+generator; disconnection handled both ways; a bounded queue between producer and
+SSE consumer; a per-thread advisory lock in Postgres; a load test at a few
+hundred concurrent conversations.
+
+\textbf{Diagrams.} \code{svc-architecture} --- the deployed system: pods,
+Postgres, provider, client. \code{svc-sse-flow} --- sequence diagram of a
+streamed turn including a disconnect. \code{svc-thread-lock} --- two concurrent
+requests on one thread, with and without the lock.
+
+\textbf{Measurement.} Concurrent conversations sustained by one process against
+p50/p95 latency, with a mocked provider so the number measures the service rather
+than the model. Then the same with one blocking call introduced, which is the
+most persuasive graph in the book.
+
+\textbf{Mini-project.} Stage 10: the FastAPI service --- SSE, disconnect policy,
+rate limiting, per-thread locking, load test.
+
+\textbf{Source topics covered.} Part~VI 6.1--6.12.
+}

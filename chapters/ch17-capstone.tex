@@ -1,0 +1,49 @@
+\chapter{The Capstone: Decisions and Trade-offs}
+\label{ch:capstone}
+
+\begin{quote}\itshape
+The code is the easy half. The section explaining why it is shaped this way is
+the half that gets read.
+\end{quote}
+
+\noindent
+The mini-project is finished by the time you reach this chapter; it was built a
+stage at a time across the preceding sixteen. This chapter deliberately
+introduces no new API. It walks the completed system as a set of decisions --- what
+was chosen, what was rejected, what it cost, and what would have to change for
+the rejected option to win.
+
+\chapterstub{
+\textbf{Argument.} A system is best explained by its rejected alternatives. The
+chapter is therefore organised as a decision log rather than a tour of the
+codebase.
+
+\textbf{Sections.} (17.1) The finished system end to end, at a level someone
+could rebuild from. (17.2) The decision log, each entry stating the choice, the
+alternative, the reason and the cost: why single-agent rather than a supervisor;
+why \code{durability="sync"} on one path and \code{"async"} on the rest; why an
+idempotency key rather than a distributed transaction; why SSE rather than
+WebSockets; why Postgres rather than Redis; why retrieval as a tool rather than
+a fixed step. (17.3) What the numbers came out at: cost per conversation, p95
+latency, evaluation scores, tokens per turn --- collected from the measurements
+made throughout the book rather than asserted here. (17.4) What broke while
+building it, honestly. (17.5) What is deliberately missing and what it would take
+to add. (17.6) Turning the project into something legible to a reviewer or an
+interviewer --- what a decisions section should contain and what makes one
+worthless.
+
+\textbf{Listings.} No new API surface. Only assembled excerpts already introduced
+elsewhere, shown in their final form.
+
+\textbf{Diagrams.} \code{capstone-architecture} --- the finished system.
+\code{capstone-graph} --- the actual compiled graph, rendered from the running
+code rather than drawn by hand. \code{capstone-decision-log} --- the decisions as
+a table-diagram with their alternatives.
+
+\textbf{Mini-project.} Final stage: the complete service, plus the decisions
+document that is the point of the whole exercise.
+
+\textbf{Source topics covered.} Part~IX 9.2; and the collected measurements from
+Chapters~\ref{ch:asyncio}, \ref{ch:tools}, \ref{ch:multi-agent},
+\ref{ch:context} and \ref{ch:serving}.
+}

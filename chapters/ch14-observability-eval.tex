@@ -1,0 +1,54 @@
+\chapter{Observability, Evaluation and Testing}
+\label{ch:observability}
+
+\begin{quote}\itshape
+Without an evaluation set you are not changing a prompt. You are guessing and
+shipping.
+\end{quote}
+
+\noindent
+Three subjects, one argument: you cannot improve what you cannot see, and you
+cannot change what you cannot re-measure. This is the chapter that separates
+people who have run an agent in production from people who have built one.
+It covers tracing, the evaluation discipline that makes prompt changes safe, and
+a testing strategy that puts a real suite in CI without a single billed model
+call.
+
+\chapterstub{
+\textbf{Argument.} Non-determinism does not make agents untestable; it makes
+\emph{text assertions} untestable. Assert on behaviour --- which tool was called,
+whether the schema validates, how many steps it took --- and the suite is as
+deterministic as any other.
+
+\textbf{Sections.} (14.1) Tracing with LangSmith: environment-variable
+activation, what a trace contains, \api{@traceable} for your own functions.
+(14.2) The alternatives when a client will not accept a SaaS backend:
+OpenTelemetry, Langfuse, Phoenix --- with what you give up. (14.3) The metrics
+worth a dashboard: latency, time to first token, cost per conversation, step
+count, task completion. (14.4) Evaluation: datasets, evaluators, and the split
+between deterministic checks and judged ones. (14.5) Trajectory evaluation ---
+scoring the path, not just the answer, which is the agent-specific part.
+(14.6) LLM-as-judge: construction, calibration against human labels, and the
+failure modes that make an uncalibrated judge worse than no judge. (14.7)
+Evaluating RAG: retrieval scored separately from generation, and why combining
+them hides the actual defect. (14.8) Evaluation in CI: regression thresholds,
+prompt A/B tests, and handling flakiness without disabling the gate. (14.9)
+Testing: fake models, node tests, the integration layer kept small and marked.
+(14.10) Prompt versioning and changing a prompt without a deploy.
+
+\textbf{Listings.} A fake chat model returning scripted tool calls; a node test;
+a twenty-case evaluation set with three evaluator types; the CI job with a
+regression threshold; a judge calibrated against hand labels, with its agreement
+rate reported.
+
+\textbf{Diagrams.} \code{obs-trace-anatomy} --- one agent run as a trace tree
+with cost and latency annotated. \code{eval-ladder} --- deterministic checks,
+judged checks, human review, by cost and by confidence. \code{test-pyramid-agents}
+--- what is tested at which layer, and what a real model call is reserved for.
+
+\textbf{Mini-project.} Stage 11: tracing wired up, a twenty-case evaluation set
+running in CI with a threshold, and a full test suite that makes no real model
+calls.
+
+\textbf{Source topics covered.} Part~VII 7.1--7.9; Part~IX 9.7 (partial).
+}

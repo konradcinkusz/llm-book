@@ -1,0 +1,10 @@
+*.tex   text diff=tex
+*.mmd   text
+*.md    text
+*.py    text diff=python
+*.png   binary
+*.pdf   binary
+
+# The chapters are prose. Word-level diffs are far more readable than
+# line-level ones when a paragraph gets rewrapped.
+*.tex   diff=word

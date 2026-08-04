@@ -1,0 +1,52 @@
+\chapter{Asynchronous Python: The Execution Model}
+\label{ch:asyncio}
+
+\begin{quote}\itshape
+A coroutine is cold. That one sentence accounts for half the bugs.
+\end{quote}
+
+\noindent
+If you write \code{async}/\code{await} in C\#, you already have the concepts. What
+you do not have are Python's defaults, and they differ in ways that turn correct
+C\# instincts into wrong Python code. A \code{Task} in .NET is usually already
+running; a coroutine in Python has not started and will not start until something
+awaits it or wraps it. There is one event loop per thread, no synchronisation
+context, and no \code{ConfigureAwait} to reason about --- and one blocking call
+anywhere stops the entire process, not one request.
+
+\chapterstub{
+\textbf{Argument.} \code{asyncio} gives interleaving, not parallelism, and the
+agent workload is the case where interleaving is exactly what you want. The
+chapter earns that claim with a measurement rather than asserting it.
+
+\textbf{Sections.} (3.1) The event loop: single-threaded, cooperative, switching
+only at \code{await}. (3.2) The GIL, honestly --- what it does, when it costs you,
+and the free-threaded build as a footnote rather than a solution. (3.3)
+Coroutines, tasks and futures; why \code{for url in urls: await fetch(url)} is a
+sequence. (3.4) \code{gather} vs \code{TaskGroup} vs \code{wait} vs
+\code{as\_completed}: four tools with four different failure semantics, in a
+table and then in code. (3.5) Structured concurrency as a design philosophy, not
+a library feature. (3.6) Synchronisation: \code{Lock}, \code{Semaphore},
+\code{Event}, \code{Queue}, and bounded queues as backpressure. (3.7) Async
+generators and async context managers; \code{aclosing}. (3.8) Blocking code:
+\code{to\_thread}, \code{run\_in\_executor}, \code{ProcessPoolExecutor} --- and
+how to decide which.
+
+\textbf{Listings.} The eight core patterns from the source, each runnable; a
+sequential-vs-concurrent benchmark with real numbers; a bounded
+producer/consumer with graceful shutdown; a \code{Semaphore}-limited fan-out.
+
+\textbf{Diagrams.} \code{async-event-loop} --- a sequence diagram of two
+coroutines interleaving at await points. \code{async-cold-coroutine} --- coroutine
+vs task lifecycle, side by side. \code{async-gather-vs-taskgroup} --- what
+happens to sibling tasks when one raises, under each primitive.
+
+\textbf{Measurement.} Sequential vs \code{gather} vs \code{TaskGroup} over twenty
+HTTP calls with a fixed artificial latency: wall-clock median over ten runs.
+Cheap, reproducible on any machine, and it makes the I/O-bound argument concrete.
+
+\textbf{Mini-project.} Stage 01: a concurrency playground --- twenty concurrent
+requests capped at five, a bounded queue, clean shutdown --- with tests.
+
+\textbf{Source topics covered.} Part~II 2.1--2.3, 2.6--2.8, 2.15.
+}

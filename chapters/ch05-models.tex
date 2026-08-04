@@ -1,0 +1,48 @@
+\chapter{Models, Messages and Runnables}
+\label{ch:models}
+
+\begin{quote}\itshape
+One interface, four methods, and an \texttt{a} prefix. That is nearly the whole
+of LCEL.
+\end{quote}
+
+\noindent
+Underneath every component in LangChain is one interface with a small, regular
+surface: \api{invoke}, \api{batch}, \api{stream}, \api{stream\_events}, each with
+an async twin whose name is the same with an \code{a} in front. Learn the four
+and the naming rule and you can drive anything in the library without reading its
+documentation. This chapter also covers the part of 1.0 that quietly removed the
+most code from real projects: standard content blocks.
+
+\chapterstub{
+\textbf{Argument.} \api{content\_blocks} is the underrated headline of 1.0.
+Before it, handling reasoning output from one provider and citations from another
+meant provider-specific branching in application code. After it, the same code
+handles both, and the \code{if provider ==} branches disappear.
+
+\textbf{Sections.} (5.1) \api{init\_chat\_model} and the provider-string form;
+direct construction and when you need it. (5.2) The \api{Runnable} contract:
+the four methods, the async twins, and what \api{batch} does with concurrency.
+(5.3) Composition with LCEL, and an honest note on where LCEL stopped being the
+centre of gravity in 1.0. (5.4) Messages: the five types, and what a
+\api{ToolMessage} is for. (5.5) Standard content blocks --- the normalised
+representation, worked across two providers. (5.6) \api{usage\_metadata} and
+counting what a call cost, which the whole cost story in
+Chapter~\ref{ch:security} depends on. (5.7) Reliability at the model boundary:
+\api{with\_fallbacks}, \code{max\_retries}, and what each one actually retries.
+(5.8) Multimodality: images, audio, documents. (5.9) Reasoning models: reasoning
+content, thinking budgets, and the cost consequence.
+
+\textbf{Listings.} A streaming CLI chat on \api{astream}; the same prompt against
+two providers with identical downstream code, printing normalised blocks; a
+fallback chain that survives a provider outage; token accounting per call.
+
+\textbf{Diagrams.} \code{lc-runnable-surface} --- the four methods and their
+async twins as one table-diagram. \code{lc-content-blocks} --- provider-specific
+response shapes collapsing into the normalised block list.
+
+\textbf{Mini-project.} Stage 02: a streaming CLI chat against a real provider,
+with token and cost accounting printed per turn.
+
+\textbf{Source topics covered.} Part~III 3.3--3.7.
+}

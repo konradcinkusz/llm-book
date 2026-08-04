@@ -1,0 +1,49 @@
+\chapter{The Ecosystem, the Alternatives and the Criticism}
+\label{ch:ecosystem}
+
+\begin{quote}\itshape
+The most useful thing you can say about a framework is where it is the wrong
+choice.
+\end{quote}
+
+\noindent
+Sixteen chapters of one library is enough to lose perspective. This chapter is
+the correction: what else exists, what those alternatives are genuinely better
+at, where no framework at all is the right answer, and what the well-founded
+criticisms of LangChain are --- as distinct from the ones that were true in 2023
+and have been repeated without checking ever since.
+
+\chapterstub{
+\textbf{Argument.} For one or two model calls behind a clean function, the
+provider SDK is faster to write, easier to debug and less likely to break. The
+framework earns its place at the point where you need durability, human
+interruption, or a topology --- and not before.
+
+\textbf{Sections.} (16.1) MCP and the adapters: loading tools from a server,
+decoupling tool execution from agent logic, and how this becomes the answer to
+``how do you scale to hundreds of tools''. (16.2) Deep Agents: planning,
+subagents, a virtual filesystem --- and the fact that it returns a compiled
+graph, so nothing is a one-way door. (16.3) The alternatives, each with what it
+is actually better at: PydanticAI, the OpenAI Agents SDK, CrewAI, AutoGen.
+(16.4) Microsoft Agent Framework as the bridge from a .NET background: the
+concepts that map one-to-one, the ones that do not, and what each ecosystem
+does better --- written from having used both. (16.5) Protocols: A2A and AG-UI.
+(16.6) When not to use a framework, with the decision stated as a short list of
+questions. (16.7) The credible criticism: abstraction depth against debugging
+cost, documentation churn, the migration tax the 1.0 split imposed, dependency
+surface, and the gap between what a trace shows and what actually happened.
+Written to be defensible, not contrarian --- and paired with what 1.0 genuinely
+fixed.
+
+\textbf{Listings.} An MCP server's tools loaded and given to an agent; the same
+small task in LangGraph, in the provider SDK alone, and in one alternative
+framework, with line counts and a note on what each makes hard.
+
+\textbf{Diagrams.} \code{eco-decision-tree} --- framework or not, and which,
+as a flowchart. \code{eco-mcp-topology} --- tools behind MCP servers rather than
+in-process. \code{eco-maf-langgraph} --- the concept mapping between Microsoft
+Agent Framework and LangGraph, side by side.
+
+\textbf{Source topics covered.} Part~VIII 8.1--8.7. 8.7 is a source gap and is
+the section that most needs the author's own judgement rather than research.
+}

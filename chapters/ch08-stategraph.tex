@@ -1,0 +1,53 @@
+\chapter{StateGraph: State, Nodes and Edges}
+\label{ch:stategraph}
+
+\begin{quote}\itshape
+Nodes do not return the state. They return a diff, and something else decides
+what that means.
+\end{quote}
+
+\noindent
+This is the chapter the rest of Part~III depends on. LangGraph is not a
+convenience wrapper for calling a model in a loop; it is a state machine executed
+under a bulk-synchronous parallel model borrowed from Pregel, and almost every
+surprising behaviour --- why a parallel write raises, why a message sent in a
+step is not visible in that step, why a checkpoint lands where it does --- falls
+out of that model rather than from any particular API.
+
+\chapterstub{
+\textbf{Argument.} Reducers are the load-bearing concept, not nodes. A field
+without a reducer is overwritten; a field with one is merged; and two parallel
+nodes writing to a field without a reducer is an \api{InvalidUpdateError} rather
+than a race. Understanding the merge rule is understanding the framework.
+
+\textbf{Sections.} (8.1) When to drop from \api{create\_agent} to a raw
+\api{StateGraph}, with the four symptoms that justify it. (8.2) The Pregel/BSP
+model and supersteps: what runs together, when updates land, where the checkpoint
+boundary is. (8.3) The state schema: \code{TypedDict}, \code{Annotated}, reducers,
+\api{add\_messages} and its deduplication by id, \api{RemoveMessage}. (8.4)
+Writing a custom reducer, and the properties one must have. (8.5) Input and
+output schemas; private channels for state that must not leak to the caller.
+(8.6) Nodes and edges; \code{START}, \code{END}, conditional edges. (8.7)
+\api{Command}: state update and jump in one return, and \code{Command.PARENT} for
+crossing a subgraph boundary. (8.8) \api{Send}: dynamic fan-out and map-reduce
+over a list. (8.9) Subgraphs: state mapping, checkpointer scope, an agent as a
+node. (8.10) Runtime and \code{context\_schema} --- the three-way distinction
+between runtime context, graph state and config, which is a common point of
+confusion.
+
+\textbf{Listings.} A three-node graph with a conditional edge and a retry loop;
+a custom reducer with its test; \api{Send}-based map-reduce over N documents; the
+parallel-write error, reproduced and then fixed; a subgraph with explicit state
+mapping.
+
+\textbf{Diagrams.} \code{lg-superstep} --- three supersteps drawn as swimlanes,
+showing buffered delivery. \code{lg-reducer-merge} --- two parallel updates
+merging, with and without a reducer. \code{lg-send-fanout} --- map-reduce over a
+document list. \code{lg-state-vs-context-vs-config} --- the three scopes as a
+Venn-style diagram.
+
+\textbf{Mini-project.} Stage 05: the agent rebuilt as an explicit graph, with
+\api{Send} fan-out across retrieved documents.
+
+\textbf{Source topics covered.} Part~IV 4.1--4.8.
+}

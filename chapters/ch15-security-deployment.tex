@@ -1,0 +1,53 @@
+\chapter{Security, Cost and Deployment}
+\label{ch:security}
+
+\begin{quote}\itshape
+Content a tool fetched is data. It is never an instruction, no matter how
+confidently it is phrased.
+\end{quote}
+
+\noindent
+An agent is a system that reads untrusted text and then decides what to do next.
+Stated that way, the security problem is obvious and the mitigations follow
+directly. This chapter covers prompt injection and the boundary that contains it,
+authorisation enforced in code rather than in a prompt, personal data and where
+it is processed, the cost controls that keep a service viable, and then the
+mechanics of running the thing.
+
+\chapterstub{
+\textbf{Argument.} Every effective mitigation is enforced outside the model. An
+allowlist, a permission check in the tool wrapper, an approval gate, a sandbox
+and a spend cap all work because the model cannot argue with them. Anything
+enforced by instructing the model is a preference, not a control.
+
+\textbf{Sections.} (15.1) Prompt injection: the threat model, channel separation,
+tool allowlists per path, approval gates on irreversible actions. (15.2)
+Authorisation: the tool runs with the user's permissions, not the service's,
+checked in the tool wrapper. (15.3) Personal data: redaction before the provider
+sees it, processing region, and checkpoint retention --- checkpoints are personal
+data and have a lifetime. (15.4) Audit: who did what with which tool and what
+came back, and why a checkpoint is not an audit log. (15.5) Sandboxing code
+execution and controlling egress from tools. (15.6) Cost control: per-role model
+selection, caching, call limits, per-conversation budgets, and alerting on the
+budget rather than on the invoice. (15.7) Containerising the service. (15.8)
+Kubernetes: graceful shutdown on SIGTERM with in-flight runs checkpointed,
+readiness and liveness probes, and why long work belongs on a queue.
+(15.9) LangGraph Server and Platform: assistants, threads, runs, cron, webhooks
+--- what it does for you and what you give up. (15.10) A version pinning strategy
+for an ecosystem that ships weekly.
+
+\textbf{Listings.} An injection attempt that succeeds against a naive agent and
+fails against a hardened one; authorisation in a tool wrapper; PII redaction
+with a checkpoint retention job; a spend cap that halts a run; a Dockerfile and
+Kubernetes manifests with a shutdown handler that checkpoints.
+
+\textbf{Diagrams.} \code{sec-injection-path} --- untrusted content reaching a
+tool call, with each control marked. \code{sec-trust-boundaries} --- what is
+trusted where. \code{deploy-topology} --- the deployed system.
+\code{deploy-shutdown} --- SIGTERM to drained, as a sequence diagram.
+
+\textbf{Mini-project.} Stage 12: injection tests, tool authorisation, PII
+redaction, retention job, budget cap, Dockerfile, manifests, shutdown handler.
+
+\textbf{Source topics covered.} Part~VII 7.10--7.17.
+}

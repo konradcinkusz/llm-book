@@ -1,0 +1,50 @@
+\chapter{Python for the .NET Engineer}
+\label{ch:python}
+
+\begin{quote}\itshape
+The language is the small part. The idioms are what a reviewer notices.
+\end{quote}
+
+\noindent
+You can be productive in Python in a fortnight and still write code that a Python
+reviewer will quietly rewrite. This chapter is about the difference. It is not a
+tour of the language; it is a list of the specific places where an engineer with
+a decade of C\# behind them reliably produces something that works and reads
+wrong --- and of the parts of the modern Python toolchain that have no C\#
+equivalent and therefore get skipped.
+
+\chapterstub{
+\textbf{Argument.} Python's type system is a linting convention rather than a
+runtime contract, and Pydantic is what fills the gap. Understanding \emph{that}
+one fact explains most of the design of the libraries in this book: schemas,
+structured output, state definitions and settings are all Pydantic or
+\code{TypedDict} underneath.
+
+\textbf{Sections.} (2.1) Environment: \code{uv}, \code{pyproject.toml}, lockfiles,
+virtual environments, and why \code{uv} rather than the four alternatives.
+(2.2) The quality gate: \code{ruff}, \code{mypy} in strict mode, \code{pytest} ---
+configured once, in \code{pyproject.toml}. (2.3) Typing that matters here: type
+hints, \code{Protocol} (structural, unlike a C\# interface), \code{TypedDict},
+\code{Annotated}, \code{Literal}, \code{Generic}. (2.4) Pydantic v2: models,
+validation, \code{BaseSettings}, serialisation, JSON Schema generation --- and
+where each of the four shows up later in the book. (2.5) Idioms: context
+managers, decorators, \code{dataclasses}, comprehensions, ABCs, \code{functools}.
+(2.6) Project structure, dependency injection without a container, configuration,
+structured logging. (2.7) The concept map, .NET to Python --- the full table.
+(2.8) The review checklist: what reads as C\#-in-Python, with the fix for each.
+
+\textbf{Listings.} A complete \code{pyproject.toml} for the mini-project;
+\code{ruff}/\code{mypy} configuration; a \code{Protocol} used where a C\#
+developer would reach for an interface; a Pydantic settings class; six paired
+before/after snippets for the review checklist.
+
+\textbf{Diagrams.} \code{py-toolchain} --- what runs when, from \code{uv sync}
+to \code{pytest}. \code{py-typing-map} --- where each typing construct is used by
+the libraries in this book.
+
+\textbf{Mini-project.} Stage 00: the repository skeleton, tooling configured,
+one trivial test passing, CI green.
+
+\textbf{Source topics covered.} Part~I 1.1--1.7 (all of which the source marks
+as gaps).
+}

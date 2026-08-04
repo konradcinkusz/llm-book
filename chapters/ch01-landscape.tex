@@ -1,0 +1,52 @@
+\chapter{The Landscape}
+\label{ch:landscape}
+
+\begin{quote}\itshape
+Most of what you will find when you search for this is describing a library that
+no longer exists.
+\end{quote}
+
+\noindent
+This chapter is about knowing which decade you are in. LangChain 1.0 landed on
+22~October~2025 and did not merely add features --- it removed the three
+abstractions that every tutorial written before it is built on, and inverted the
+relationship between the two libraries whose names are on the cover of this book.
+Getting that inversion the right way round is the single highest-value thing in
+the chapter, because everything downstream follows from it.
+
+\mermaidfig{lc-lg-layering}{%
+  The inversion, drawn. \api{create\_agent} is not an alternative to LangGraph;
+  it returns a compiled LangGraph graph, which is why an agent gets
+  checkpointing, streaming and interrupts without asking for them.}{%
+  Layer cake: application, convenience layer, runtime, contracts.}
+
+\chapterstub{
+\textbf{Argument.} \pkg{langchain} and \pkg{langgraph} are not alternatives.
+\pkg{langgraph} is the execution runtime; \pkg{langchain} 1.x is a thin,
+opinionated layer over it, and \api{create\_agent} returns a compiled LangGraph
+graph. Everything an agent gets for free --- checkpointing, streaming,
+interrupts --- it gets because of that fact.
+
+\textbf{Sections.} (1.1) Timeline, from October 2022 to the present, and what
+each date changed. (1.2) What 1.0 removed and why: \api{AgentExecutor},
+\api{initialize\_agent}, \api{LLMChain}, \code{langgraph.prebuilt.create\_react\_agent}.
+(1.3) The package map --- what each distribution owns and what moved to
+\pkg{langchain-classic}. (1.4) The inversion, demonstrated rather than asserted:
+build an agent with \api{create\_agent}, then print its graph. (1.5) How to date
+a piece of LangChain material in ten seconds. (1.6) Where the framework is the
+wrong tool at all --- forward reference to Chapter~\ref{ch:ecosystem}.
+(1.7) The .NET reader's orientation: what maps, what does not, and the honest
+account of what a decade of backend work is worth here.
+
+\textbf{Listings.} Package map as a dependency listing; the before/after pair
+(0.x \api{AgentExecutor} vs 1.x \api{create\_agent}) shown side by side; the
+one-liner that prints the compiled graph of an agent.
+
+\textbf{Diagrams.} \code{lc-lg-layering} --- the layer cake, showing
+\api{create\_agent} sitting on the Pregel runtime. \code{lc-timeline} --- the
+ecosystem timeline as a Mermaid timeline. \code{lc-package-map} --- the
+distributions and their dependency edges.
+
+\textbf{Source topics covered.} Part~III 3.1--3.2, 3.16 (partial);
+Part~VIII 8.6; \S0 framing.
+}

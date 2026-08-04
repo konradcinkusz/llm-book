@@ -1,0 +1,26 @@
+\chapter{Packages, Versions and Migration}
+\label{app:packages}
+
+\noindent
+What each distribution owns, what version this book was written against, what
+moved where in 1.0, and how to migrate a 0.x codebase without guessing.
+
+\chapterstub{
+\textbf{Contents.} (A.1) The distribution map: every package used in the book,
+what it owns, what depends on it, and its pinned version. (A.2) The version
+lines --- which packages move together and which do not, which is the thing that
+catches people. (A.3) What moved to \pkg{langchain-classic} and what its
+maintenance status means in practice. (A.4) Provider integration packages and the
+capability differences that leak through the abstraction (structured output
+support, reasoning content, caching, parallel tool calls). (A.5) Checkpointer
+backends compared: in-memory, SQLite, Postgres, Redis --- durability, latency,
+operational cost. (A.6) The 0.x to 1.x migration, step by step: inventory,
+\pkg{langchain-classic} as a bridge, \api{AgentExecutor} to \api{create\_agent},
+memory classes to a checkpointer, what LCEL survives. (A.7) The precondition
+nobody wants to hear: build the evaluation set before you migrate, or you cannot
+tell a regression from a difference.
+
+\textbf{Note.} Versions are macros defined in \code{preamble.tex} and are never
+written into a chapter by hand. The CI job in \code{tools/check\_versions.py}
+compares them against PyPI on every build.
+}

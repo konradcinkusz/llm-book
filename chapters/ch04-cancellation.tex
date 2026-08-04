@@ -1,0 +1,55 @@
+\chapter{Cancellation, Timeouts and Resilience}
+\label{ch:cancellation}
+
+\begin{quote}\itshape
+Cancellation in Python is an exception injected into your code, not a flag you
+remember to check.
+\end{quote}
+
+\noindent
+This is the chapter about everything that happens when the happy path does not.
+A client disconnects halfway through a streamed response. A provider takes
+forty seconds instead of two. A task raises and nobody is listening. A shutdown
+signal arrives while nine hundred conversations are in flight. Each of these has
+a correct Python answer, each has a plausible-looking wrong one, and the wrong
+ones are what you get from reading the standard library documentation quickly.
+
+\chapterstub{
+\textbf{Argument.} \code{CancelledError} is not an error, it is a control-flow
+message, and the single most damaging thing you can do with it is catch it and
+not re-raise. A service that will not shut down cleanly almost always has one of
+those somewhere.
+
+\textbf{Sections.} (4.1) How cancellation actually works: injection at the next
+\code{await}, the cleanup pattern, the mandatory re-raise, and \code{shield} for
+the rare case that deserves it. (4.2) The .NET contrast --- \code{CancellationToken}
+is cooperative polling, this is not --- and what that changes about where you put
+cleanup. (4.3) Timeouts: \code{asyncio.timeout} vs \code{wait\_for}, and the three
+levels an agent needs (per model call, per tool, per run) with what each one
+protects. (4.4) \code{contextvars} and context propagation --- the source marks
+this as a gap and it is the mechanism behind tracing and \code{RunnableConfig}
+surviving a hop into a task. (4.5) Async HTTP: \code{httpx.AsyncClient},
+connection pools, keep-alive, retry with exponential backoff and jitter.
+(4.6) Async databases: \code{asyncpg} and \code{psycopg} 3, pools, transactions,
+statement timeouts. (4.7) The antipattern catalogue --- the source's table,
+expanded so each row has a reproduction, a symptom and a fix. (4.8) Debugging:
+\code{asyncio} debug mode, detecting a blocked loop, and what to reach for when
+latency is unexplained. (4.9) Testing async code: \code{pytest-asyncio} vs
+\code{anyio}, fakes, and controlling time.
+
+\textbf{Listings.} The cleanup-and-re-raise pattern; a three-level timeout stack;
+a \code{contextvars} propagation demonstration that fails and then passes; an
+\code{httpx} client with a pool and jittered retry; a deliberately blocked event
+loop with the diagnostic that finds it.
+
+\textbf{Diagrams.} \code{async-cancellation} --- sequence diagram of a cancel
+propagating through a task tree. \code{async-timeout-levels} --- the three
+timeout scopes drawn as nested boxes over one agent run.
+\code{async-blocked-loop} --- what a blocked loop does to unrelated requests.
+
+\textbf{Mini-project.} Stage 01 continued: shutdown that drains in-flight work,
+and a test that asserts it.
+
+\textbf{Source topics covered.} Part~II 2.4--2.5, 2.9--2.14 (2.9 and 2.13 are
+marked gaps in the source).
+}

@@ -1,0 +1,51 @@
+\chapter{\texorpdfstring{\texttt{create\_agent}}{create\_agent} and Middleware}
+\label{ch:agents}
+
+\begin{quote}\itshape
+If you have written an ASP.NET Core middleware pipeline, you have written this
+before.
+\end{quote}
+
+\noindent
+\api{create\_agent} is the shortest path to a working agent, and middleware is
+1.0's flagship extensibility mechanism. The analogy to \code{app.Use(async (ctx,
+next) => ...)} is exact rather than approximate, which makes this the chapter
+where a .NET reader's existing instincts are worth the most. The part worth
+slowing down for is where the hooks run: inside the compiled graph, which is why
+an agent with a full middleware stack can be dropped into a larger graph as a
+single node.
+
+\chapterstub{
+\textbf{Argument.} Middleware is not a second runtime bolted onto the agent. The
+hooks execute inside the LangGraph graph \api{create\_agent} returns, and that is
+what makes composition work --- and what makes Chapter~\ref{ch:stategraph}'s
+material apply to agents you did not build by hand.
+
+\textbf{Sections.} (7.1) The full signature, argument by argument: model, tools,
+system prompt, middleware, \code{response\_format}, checkpointer, store,
+\code{context\_schema}, name. (7.2) The agent loop, stated precisely, and its
+termination conditions. (7.3) The six hooks and their ordering:
+\code{before\_agent}, \code{before\_model}, \code{wrap\_model\_call},
+\code{after\_model}, \code{wrap\_tool\_call}, \code{after\_agent}. (7.4) The
+built-in catalogue --- summarisation, human-in-the-loop, PII, model and tool call
+limits, model fallback, tool selection --- with a table of when each earns its
+place. (7.5) Writing your own: \code{@dynamic\_prompt}, \code{@wrap\_tool\_call},
+and the decorator versus class forms. (7.6) Ordering effects, worked: the same
+three middleware in two orders, producing two different behaviours. (7.7) The
+ASP.NET Core mapping, in full. (7.8) Proving the composition claim by printing
+the graph and then embedding the agent as a node.
+
+\textbf{Listings.} A complete agent with five middleware; an audit middleware
+written from scratch; a middleware ordering demonstration; the agent-as-node
+composition.
+
+\textbf{Diagrams.} \code{agent-loop} --- the model/tool loop as a flowchart with
+its exits. \code{middleware-onion} --- the hook order drawn as nested scopes
+around one model call. \code{middleware-aspnet} --- the two pipelines side by
+side, ASP.NET Core and LangChain.
+
+\textbf{Mini-project.} Stage 04: the agent assembled, with audit, PII redaction,
+call limits and an approval gate on the email tool.
+
+\textbf{Source topics covered.} Part~III 3.11--3.13.
+}

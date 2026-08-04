@@ -1,0 +1,57 @@
+\chapter{Multi-Agent Systems}
+\label{ch:multi-agent}
+
+\begin{quote}\itshape
+Every supervisor turn is a full model call. Multi-agent is a cost decision before
+it is an architecture decision.
+\end{quote}
+
+\noindent
+Multi-agent is the most over-recommended pattern in the field. It is also
+genuinely the right answer in a narrow set of cases, and this chapter is about
+telling the two apart with numbers rather than taste. The five topologies are
+covered properly, and then measured against a single-agent baseline on one fixed
+task, because the interesting question is not whether a supervisor works --- it
+does --- but what it costs and what it buys.
+
+\chapterstub{
+\textbf{Argument.} You reach for multi-agent on symptoms, not by default: one
+agent's prompt has outgrown control, there are too many tools for one model to
+select from reliably, you need genuine parallelism, or you need an independent
+critic. Absent a symptom, a pipeline with a validator is cheaper and easier to
+debug.
+
+\textbf{Sections.} (11.1) The five topologies --- supervisor, swarm/handoff,
+network, pipeline, orchestrator-worker --- with structure, cost profile and
+failure mode for each. (11.2) Handoffs via \api{Command} and
+\code{Command.PARENT}, and how handoff loops happen. (11.3) Supervisor versus
+swarm: control and auditability against latency and cost. (11.4) The token
+economics: where the overhead comes from, and model selection per role.
+(11.5) Debugging a multi-agent run --- the practical difficulty and what makes it
+tractable. (11.6) The functional API: \api{@entrypoint} and \api{@task}, same
+runtime, ordinary control flow, and when it is the better shape. (11.7)
+Visualisation, \code{langgraph dev} and Studio.
+
+\textbf{Listings.} Each of the five topologies on one identical task, so they are
+comparable; a handoff loop reproduced and then bounded; the same workflow written
+as a graph and with the functional API, side by side.
+
+\textbf{Diagrams.} \code{ma-topologies} --- all five drawn to the same scale on
+one page. \code{ma-supervisor-turns} --- sequence diagram counting model calls
+per user turn. \code{ma-handoff-loop} --- how two agents deadlock by politeness.
+
+\textbf{Measurement --- the book's headline experiment.} One fixed task with a
+checkable answer. Six implementations: single agent, and the five topologies.
+Model, temperature, instructions and tools held constant. Four metrics: turn
+count, token cost, wall-clock latency, success rate. Twenty runs per
+implementation minimum; medians and spreads, never best runs. Keep the raw event
+streams, not only the summary rows --- Chapter~\ref{ch:observability} re-scores
+these same runs under an evaluation harness, and re-running to recover traces is
+expensive. Until this is run, every comparative claim in the chapter is labelled
+as judgement, and the tables in Appendix~\ref{app:cheatsheet} stay empty.
+
+\textbf{Mini-project.} Stage 08: a supervisor variant of Ops Copilot and the
+harness that compares it against the single-agent build.
+
+\textbf{Source topics covered.} Part~IV 4.21--4.25.
+}

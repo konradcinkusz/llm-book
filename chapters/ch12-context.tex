@@ -1,0 +1,54 @@
+\chapter{Context Engineering}
+\label{ch:context}
+
+\begin{quote}\itshape
+The context window is a budget you are spending whether or not you are managing
+it.
+\end{quote}
+
+\noindent
+The source material this book grew from marks this as its largest missing
+chapter, and it is right to. Everything in Parts~II and~III assumes the model can
+see what it needs to see, and in a real agent that assumption fails quietly:
+tool outputs accumulate, history grows, quality degrades before any limit is hit,
+and the bill rises the whole time. Context engineering is the discipline of
+treating the window as the scarce, managed resource it is.
+
+\chapterstub{
+\textbf{Argument.} Tool results, not conversation history, are the dominant
+consumer of context in a working agent, and they are the thing nobody trims. A
+single unfiltered SQL result or web page can cost more than the entire preceding
+conversation.
+
+\textbf{Sections.} (12.1) The window as a managed resource: what occupies it, in
+what proportion, measured on a real run rather than assumed. (12.2) Compaction
+and summarisation: the summarisation middleware, what it keeps, and what it
+silently loses. (12.3) Trimming tool results --- the main event: truncation
+strategies, projecting only the fields the model needs, and returning a handle
+rather than a payload. (12.4) Editing context in flight with the context-editing
+middleware. (12.5) Prompt caching: where cache points go, why message ordering
+determines whether they hit, and the economics with real numbers. (12.6) Quality
+degradation over long contexts --- what the evidence actually supports, and the
+practical rule that follows. (12.7) Tool selection under scale, the selector
+middleware, and MCP namespacing. (12.8) Injecting memory and user profile without
+paying for it on every turn.
+
+\textbf{Listings.} A context accounting harness that prints the window
+composition per turn; a tool-result projector; summarisation configured and its
+loss demonstrated; a prompt-cache-friendly message layout against a
+cache-hostile one, with the cost difference.
+
+\textbf{Diagrams.} \code{ctx-window-budget} --- window composition over ten turns
+as a stacked bar. \code{ctx-compaction} --- before and after summarisation.
+\code{ctx-cache-points} --- why reordering messages destroys a cache hit.
+
+\textbf{Measurement.} Cost per conversation across four configurations: naive,
+trimmed tool results, summarised history, and both --- plus cache hit rate.
+Ten conversations of ten turns each. This one is cheap and the numbers are
+striking; it should be run early.
+
+\textbf{Mini-project.} Stage 09: tool-result projection, summarisation, cache
+points, and a cost report per conversation.
+
+\textbf{Source topics covered.} Part~V 5.1--5.8, all marked as gaps in the source.
+}

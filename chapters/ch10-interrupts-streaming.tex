@@ -1,0 +1,55 @@
+\chapter{Interrupts, Time Travel and Streaming}
+\label{ch:interrupts}
+
+\begin{quote}\itshape
+A graph paused for approval is not a process holding a thread. It is a row.
+\end{quote}
+
+\noindent
+Three features that look unrelated and are the same feature. Because state is a
+serialised value rather than a program counter, a run can stop, be inspected,
+be edited, be resumed days later in a different process --- and can be streamed
+out while it happens. This chapter covers the human-in-the-loop patterns that
+matter in practice, the debugging capability nobody uses enough, and the
+streaming surface that most of the perceived quality of an agent product depends
+on.
+
+\chapterstub{
+\textbf{Argument.} \api{interrupt} needs exactly three things --- a checkpointer,
+a \code{thread\_id}, and a JSON-serialisable payload --- and the trap is that
+code \emph{before} the interrupt re-runs on resume. Put the irreversible action
+after the gate, never before it.
+
+\textbf{Sections.} (10.1) \api{interrupt} and \api{Command(resume=...)}: the
+mechanism. (10.2) The four HITL patterns --- approve/reject, edit state, review
+tool call, ask-the-human --- with the case each fits. (10.3) The same thing at
+the LangChain layer via the human-in-the-loop middleware. (10.4) The
+re-execution trap, demonstrated with a duplicated email and then fixed.
+(10.5) Time travel: \api{get\_state\_history}, \api{update\_state}, branching
+from a past checkpoint, and what it is genuinely good for. (10.6) Streaming
+modes: \code{values}, \code{updates}, \code{messages}, \code{custom},
+\code{debug}, \code{tasks}, \code{checkpoints}, and combining them. (10.7) Event
+streaming v3 and its typed projections --- \code{messages}, \code{tool\_calls},
+\code{values}, \code{output}, \code{subagents}, \code{subgraphs}. (10.8)
+Consuming two projections concurrently, which is where Part~I's \code{asyncio}
+material pays off directly. (10.9) Custom stream writers and domain events.
+(10.10) TTFT: what actually dominates it, and what streaming does and does not
+improve. (10.11) Double texting --- reject, enqueue, interrupt, rollback --- and
+picking a policy.
+
+\textbf{Listings.} An approval gate before an irreversible action, resumed from a
+separate endpoint; the duplicated-side-effect reproduction; a time-travel
+debugging session; two projections consumed under \code{asyncio.gather}; each of
+the four double-texting policies.
+
+\textbf{Diagrams.} \code{hitl-interrupt-resume} --- sequence diagram spanning
+two processes and a three-day gap. \code{lg-time-travel} --- checkpoint history
+as a tree with a branch. \code{stream-projections} --- one run, several
+projections, drawn as parallel lanes. \code{double-texting-policies} --- the four
+policies as a state diagram.
+
+\textbf{Mini-project.} Stage 07: approval gate on email, a resume endpoint, a
+time-travel debug endpoint, and streamed tokens plus tool status.
+
+\textbf{Source topics covered.} Part~IV 4.16--4.20; Part~VI 6.9 (a source gap).
+}

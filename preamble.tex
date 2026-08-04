@@ -1,0 +1,440 @@
+% ============================================================
+%  preamble.tex — styling, environments, macros
+%  Edit this file to change the look of the whole book.
+% ============================================================
+
+% ---------- Page geometry ----------
+\usepackage[
+  paperwidth=17cm, paperheight=24cm,
+  inner=2.2cm, outer=1.8cm, top=2.2cm, bottom=2.4cm,
+  headsep=0.7cm, footskip=1.2cm
+]{geometry}
+
+% ---------- Encoding & fonts ----------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+% Nicer fonts if available on your machine (MiKTeX / full TeX Live).
+% Harmless no-ops if the packages are missing.
+\IfFileExists{newtxtext.sty}{\usepackage{newtxtext}}{}
+\IfFileExists{newtxmath.sty}{\usepackage{newtxmath}}{}
+\IfFileExists{inconsolata.sty}{\usepackage[varqu,scaled=0.95]{inconsolata}}{}
+% Font expansion needs scalable fonts; fall back gracefully if absent.
+\IfFileExists{lmodern.sty}{\usepackage{microtype}}{\usepackage[expansion=false]{microtype}}
+
+% Appendix E is a bilingual glossary. Polish needs T1 (set above) plus its
+% hyphenation patterns, which live in a separate TeX Live language collection
+% that a minimal installation does not have. Loading babel with a language whose
+% .ldf is absent is a *fatal* error, not a warning, so both the package and the
+% language file are probed before either is requested. British is likewise
+% optional: without it the book still sets, it just hyphenates as American.
+\IfFileExists{babel.sty}{%
+  \IfFileExists{polish.ldf}{\usepackage[polish,main=british]{babel}}{%
+    \IfFileExists{british.ldf}{\usepackage[british]{babel}}{}%
+  }%
+}{}
+
+% ---------- Core packages ----------
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{etoolbox}
+\usepackage{imakeidx}
+\usepackage[hidelinks]{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=lcblue,
+  urlcolor=lcblue,
+  citecolor=lcblue,
+  pdftitle={LangChain, LangGraph and Async Python},
+  pdfauthor={Konrad Cinkusz}
+}
+
+% ---------- Palette ----------
+\definecolor{lcblue}{HTML}{1F4E79}
+\definecolor{lcteal}{HTML}{0E7C7B}
+\definecolor{lcamber}{HTML}{B26A00}
+\definecolor{lcred}{HTML}{9B2C2C}
+\definecolor{lcgrey}{HTML}{5A5A5A}
+\definecolor{lclight}{HTML}{F4F6F8}
+\definecolor{codebg}{HTML}{FAFAFA}
+\definecolor{codeframe}{HTML}{D8DEE4}
+\definecolor{kw}{HTML}{0B5394}
+\definecolor{str}{HTML}{9B2C2C}
+\definecolor{cmt}{HTML}{4F7A4F}
+\definecolor{typ}{HTML}{0E7C7B}
+\definecolor{dec}{HTML}{7B4397}
+
+% ---------- Headings ----------
+% \raggedright on the title body is load-bearing, not cosmetic. Several chapter
+% titles here run past 35 characters, and at \Huge on a 13 cm text block a title
+% that cannot break overflows the margin by 30 pt or more. Justified setting
+% gives TeX no way out; ragged right lets it wrap onto a second line.
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{lcblue}\raggedright}
+  {\normalfont\normalsize\color{lcgrey}\MakeUppercase{\chaptertitlename}\ \thechapter}
+  {8pt}{\Huge\raggedright}
+\titlespacing*{\chapter}{0pt}{10pt}{28pt}
+\titleformat{\section}{\normalfont\Large\bfseries\color{lcblue}}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries\color{lcgrey}}{\thesubsection}{0.7em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{\small\nouppercase{\leftmark}}
+\fancyhead[RO]{\small\nouppercase{\rightmark}}
+\fancyfoot[LE,RO]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% The default book-class running head is "Chapter 10. <full title>", and at this
+% page width the longer chapter titles in Parts III and IV overflow the margin by
+% 20-34 pt. Dropping the word "Chapter" recovers roughly that much and costs the
+% reader nothing: the number is still there, and the head stays unambiguous.
+%
+% This MUST come after \pagestyle{fancy}: fancyhdr installs its own \chaptermark
+% at that point and silently overwrites anything defined earlier.
+\renewcommand{\chaptermark}[1]{\markboth{\thechapter.\ #1}{}}
+\renewcommand{\sectionmark}[1]{\markright{\thesection\ #1}}
+
+% ============================================================
+%  CODE LISTINGS
+% ============================================================
+
+% `listings` ships a Python definition, but it knows nothing about the
+% vocabulary this book actually uses. Extending it means `await`, `async`,
+% `match` and the library's own type names are highlighted rather than left
+% as plain identifiers in the middle of a listing.
+\lstdefinelanguage{pythonx}{
+  language=Python,
+  morekeywords={
+    async,await,match,case,nonlocal,yield,
+    TypedDict,Annotated,Protocol,Literal,Generic,Final,ClassVar,
+    BaseModel,Field,
+    StateGraph,START,END,Command,Send,Runtime,
+    RetryPolicy,CachePolicy,Interrupt,
+    AIMessage,HumanMessage,SystemMessage,ToolMessage
+  },
+  morekeywords=[2]{
+    create_agent,init_chat_model,interrupt,add_messages,tool,entrypoint,task,
+    ainvoke,astream,astream_events,abatch,
+    gather,create_task,TaskGroup,to_thread,timeout,wait_for,Semaphore,Queue
+  },
+  sensitive=true
+}
+
+\lstdefinestyle{lccode}{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{kw}\bfseries,
+  keywordstyle=[2]\color{typ},
+  stringstyle=\color{str},
+  commentstyle=\color{cmt}\itshape,
+  emphstyle=\color{dec}\bfseries,
+  numbers=left,
+  numberstyle=\ttfamily\tiny\color{lcgrey},
+  numbersep=8pt,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  framesep=6pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{lcgrey}{$\hookrightarrow$}\space},
+  showstringspaces=false,
+  tabsize=4,
+  columns=fullflexible,
+  keepspaces=true,
+  captionpos=b,
+  aboveskip=1.2em,
+  belowskip=1.2em,
+  literate={ł}{{\l}}1 {Ł}{{\L}}1 {ą}{{\k a}}1 {ę}{{\k e}}1
+           {ś}{{\'s}}1 {ć}{{\'c}}1 {ż}{{\.z}}1 {ź}{{\'z}}1 {ó}{{\'o}}1 {ń}{{\'n}}1
+           {—}{{-{}-}}2 {–}{{-}}1 {‘}{{'}}1 {’}{{'}}1
+           {“}{{"}}1 {”}{{"}}1 {°}{{\textdegree}}1 { }{{~}}1
+}
+
+\lstset{style=lccode}
+
+% Inline Python environment.  Usage:
+%   \begin{python}[caption={Hello agent},label={lst:hello}]
+%   ...code...
+%   \end{python}
+\lstnewenvironment{python}[1][]
+  {\lstset{language=pythonx,style=lccode,#1}}
+  {}
+
+% C# comparison snippets. This book is written for engineers arriving from
+% .NET, so a handful of listings show the two languages side by side.
+\lstnewenvironment{csharp}[1][]
+  {\lstset{language=[Sharp]C,style=lccode,#1}}
+  {}
+
+\lstnewenvironment{shellcmd}[1][]
+  {\lstset{language=bash,style=lccode,numbers=none,keywordstyle=\color{lcteal}\bfseries,#1}}
+  {}
+
+\lstnewenvironment{yamlcode}[1][]
+  {\lstset{style=lccode,basicstyle=\ttfamily\footnotesize,#1}}
+  {}
+
+\lstnewenvironment{jsoncode}[1][]
+  {\lstset{style=lccode,basicstyle=\ttfamily\footnotesize,numbers=none,#1}}
+  {}
+
+% Terminal transcripts and tracebacks: no line numbers, no keyword colouring.
+\lstnewenvironment{console}[1][]
+  {\lstset{style=lccode,numbers=none,basicstyle=\ttfamily\scriptsize,
+           keywordstyle=\color{black},backgroundcolor=\color{white},#1}}
+  {}
+
+% External source file — the preferred form once code lives in code/, which
+% mirrors the stages of the companion mini-project repository.
+% Usage: \pyfile{code/ch07/middleware.py}{Caption}{lst:label}
+\newcommand{\pyfile}[3]{%
+  \lstinputlisting[language=pythonx,style=lccode,caption={#2},label={#3}]{#1}%
+}
+
+% A named region of an external file, delimited in the source by
+% `# --8<-- [start:name]` / `# --8<-- [end:name]` so the book and the running
+% project cannot drift apart.
+% Usage: \pyregion{code/ch07/middleware.py}{audit}{Caption}{lst:label}
+\newcommand{\pyregion}[4]{%
+  \lstinputlisting[
+    language=pythonx, style=lccode,
+    linerange={--8<--\ [start:#2]--- 8<--\ [end:#2]},
+    includerangemarker=false,
+    caption={#3}, label={#4}]{#1}%
+}
+
+% Inline literals
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\pkg}[1]{\texttt{\small\color{lcblue}#1}}
+\newcommand{\api}[1]{\texttt{\small\color{lcteal}#1}}
+
+% ============================================================
+%  ADMONITIONS
+% ============================================================
+
+\newtcolorbox{note}[1][]{
+  enhanced, breakable,
+  colback=lclight, colframe=lcblue,
+  boxrule=0pt, leftrule=3pt,
+  arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small,
+  title={Note}, #1
+}
+
+\newtcolorbox{warning}[1][]{
+  enhanced, breakable,
+  colback=lclight, colframe=lcred,
+  boxrule=0pt, leftrule=3pt,
+  arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small,
+  title={Watch out}, #1
+}
+
+% For anything that is preview / alpha / likely to move. The LangChain
+% ecosystem ships faster than this book does, so this box gets used a lot.
+\newtcolorbox{versionbox}[1][]{
+  enhanced, breakable,
+  colback=lclight, colframe=lcamber,
+  boxrule=0pt, leftrule=3pt,
+  arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small,
+  title={Version sensitive}, #1
+}
+
+% Marks a listing that has not been executed against the pinned versions.
+\newtcolorbox{verifybox}[1][]{
+  enhanced, breakable,
+  colback=white, colframe=lcgrey,
+  boxrule=0.6pt, arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small,
+  title={Run this before you trust it}, #1
+}
+
+\newtcolorbox{exercisebox}[1][]{
+  enhanced, breakable,
+  colback=white, colframe=lcteal,
+  boxrule=0pt, leftrule=3pt,
+  arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small,
+  title={Exercise}, #1
+}
+
+% Points at the stage of the companion repository that this section builds.
+\newtcolorbox{projectbox}[1][]{
+  enhanced, breakable,
+  colback=white, colframe=lcamber,
+  boxrule=0pt, leftrule=3pt,
+  arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small,
+  title={Mini-project}, #1
+}
+
+% The .NET reader is the book's assumed reader. This box carries the
+% translation and nothing else, so a reader without that background can skip
+% every one of them and lose no content.
+\newtcolorbox{dotnetbox}[1][]{
+  enhanced, breakable,
+  colback=lclight, colframe=lcteal,
+  boxrule=0pt, leftrule=3pt,
+  arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small,
+  title={If you are coming from .NET}, #1
+}
+
+% ============================================================
+%  DIAGRAMS — Mermaid pipeline
+%  ---------------------------------------------------------
+%  \mermaidfig{key}{caption}{one-line description}
+%
+%  Source of truth is figures/mermaid/<key>.mmd, checked into the
+%  repository. `make diagrams` renders each one to figures/diagrams/<key>.pdf
+%  with mermaid-cli. If the rendered PDF is present it is included; if not, a
+%  visible placeholder is drawn AND the Mermaid source is typeset verbatim, so
+%  an unrendered build still shows the reader the graph.
+%
+%  Rendered diagrams are build output and are not committed; the .mmd source
+%  is. That keeps diagrams reviewable in a pull request as text.
+% ============================================================
+
+\makeatletter
+\newcommand{\listofdiagrams}{%
+  \section*{Diagram manifest}%
+  \addcontentsline{toc}{section}{Diagram manifest}%
+  \@starttoc{dgm}%
+}
+\makeatother
+
+\newcommand{\mermaidfig}[3]{%
+  \addcontentsline{dgm}{subsection}{\protect\numberline{}\texttt{#1.mmd} --- #3}%
+  \begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/diagrams/#1.pdf}{%
+    \includegraphics[width=0.95\linewidth,height=0.42\textheight,keepaspectratio]{figures/diagrams/#1.pdf}%
+  }{%
+    \begin{tcolorbox}[
+      enhanced, breakable, width=0.98\linewidth,
+      colback=white, colframe=lcgrey, boxrule=0.8pt,
+      arc=0pt, outer arc=0pt, left=8pt, right=8pt, top=8pt, bottom=8pt]
+      {\bfseries\color{lcgrey}\small NOT RENDERED --- run \texttt{make diagrams}}\\[4pt]
+      {\ttfamily\scriptsize\color{lcgrey} figures/mermaid/#1.mmd}\\[6pt]
+      \IfFileExists{figures/mermaid/#1.mmd}{%
+        \lstinputlisting[style=lccode,numbers=none,basicstyle=\ttfamily\scriptsize,
+                         backgroundcolor=\color{lclight},frame=none,
+                         keywordstyle=\color{black}]{figures/mermaid/#1.mmd}%
+      }{%
+        {\small\color{lcred} Mermaid source missing: \texttt{figures/mermaid/#1.mmd}}%
+      }%
+    \end{tcolorbox}%
+  }%
+  \caption{#2}\label{fig:#1}
+  \end{figure}%
+}
+
+% ============================================================
+%  SCREENSHOT PLACEHOLDERS
+%  ---------------------------------------------------------
+%  \needscreenshot{key}{caption}{what exactly to capture}
+%
+%  If figures/screenshots/<key>.png exists it is included. If not, a visible
+%  placeholder box is drawn and the request is recorded in the manifest.
+%
+%  Keep capture instructions in prose. A long \code{} identifier here lands in
+%  the manifest's narrow column and overflows the margin badly.
+% ============================================================
+
+\makeatletter
+\newcommand{\listofshots}{%
+  \section*{Screenshot manifest}%
+  \addcontentsline{toc}{section}{Screenshot manifest}%
+  \@starttoc{shots}%
+}
+\makeatother
+
+\newcommand{\needscreenshot}[3]{%
+  \addcontentsline{shots}{subsection}{\protect\numberline{}\texttt{#1.png} --- #3}%
+  \begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/screenshots/#1.png}{%
+    \includegraphics[width=0.95\linewidth]{figures/screenshots/#1.png}%
+  }{%
+    \begin{tcolorbox}[
+      enhanced, width=0.95\linewidth,
+      colback=lclight, colframe=lcamber,
+      boxrule=1pt, arc=0pt, outer arc=0pt,
+      borderline={0.6pt}{3pt}{lcamber, dashed},
+      left=12pt, right=12pt, top=14pt, bottom=14pt]
+      \centering
+      {\bfseries\color{lcamber}\large SCREENSHOT NEEDED}\\[6pt]
+      {\ttfamily\small figures/screenshots/#1.png}\\[10pt]
+      \begin{minipage}{0.9\linewidth}
+        \small\raggedright\color{lcgrey} #3
+      \end{minipage}
+    \end{tcolorbox}%
+  }%
+  \caption{#2}\label{fig:#1}
+  \end{figure}%
+}
+
+% ============================================================
+%  CHAPTER STUBS
+%  ---------------------------------------------------------
+%  \chapterstub{one-paragraph statement of what the chapter will cover}
+%
+%  Prints a visible marker so an unfinished chapter cannot be mistaken for a
+%  finished one, and so the page count never flatters the draft.
+% ============================================================
+\newcommand{\chapterstub}[1]{%
+  \begin{tcolorbox}[
+    enhanced, breakable, width=\linewidth,
+    colback=lclight, colframe=lcred,
+    boxrule=1pt, arc=0pt, outer arc=0pt,
+    borderline={0.6pt}{3pt}{lcred, dashed},
+    left=12pt, right=12pt, top=12pt, bottom=12pt]
+    {\bfseries\color{lcred}\large NOT YET WRITTEN}\\[8pt]
+    \small\raggedright #1
+  \end{tcolorbox}%
+}
+
+% ============================================================
+%  PINNED VERSIONS — single source of truth
+%  Change these here; they propagate through the whole book.
+%  Verified against pypi.org on \pinnedon.
+% ============================================================
+\newcommand{\lcver}{1.3.14}          % langchain
+\newcommand{\lccorever}{1.5.3}       % langchain-core
+\newcommand{\lgver}{1.2.10}          % langgraph
+\newcommand{\lgpgver}{3.1.1}         % langgraph-checkpoint-postgres
+\newcommand{\lcclassicver}{1.0.8}    % langchain-classic
+\newcommand{\lcanthropicver}{1.5.3}  % langchain-anthropic
+\newcommand{\lsver}{0.10.15}         % langsmith
+\newcommand{\mcpadapterver}{0.3.1}   % langchain-mcp-adapters
+\newcommand{\deepagentsver}{0.7.3}   % deepagents
+\newcommand{\pinnedon}{August 2026}  % "verified as of"
+\newcommand{\pyver}{Python 3.13}     % the interpreter the book targets
+\newcommand{\pymin}{Python 3.10}     % the floor LangChain 1.x requires
+
+% The index is two-column and its entries include \texttt{} API names, which do
+% not hyphenate. Ragged right keeps multi-word entries off the margin. It cannot
+% help a single token wider than the column, so keep verbatim index entries under
+% about 29 characters and index longer names by concept instead.
+\apptocmd{\theindex}{\raggedright}{}{%
+  \PackageWarning{llmbook}{Could not patch theindex for ragged-right setting}}
+
+\makeindex
