@@ -2,9 +2,10 @@ MIT License
 
 Copyright (c) 2026 Konrad Cinkusz
 
-This licence covers the CODE in this repository: the C# samples under code/,
-the LaTeX macros and class/style definitions in preamble.tex, the build tooling,
-and the GitHub Actions workflows.
+This licence covers the CODE in this repository: the Python samples under code/,
+the Mermaid diagram sources under figures/mermaid/, the LaTeX macros and
+class/style definitions in preamble.tex, the build tooling under tools/, and the
+GitHub Actions workflows.
 
 The PROSE of the book -- everything under chapters/, appendices/ and
 frontmatter/ -- is licensed separately. See LICENSE-CONTENT.
