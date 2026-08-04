@@ -11,19 +11,19 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | 0 written | **1–17, all stubbed** |
-| Appendices | 0 written | **A–F, all stubbed** |
+| Chapters | **1** | 2–17, stubbed |
+| Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **70 pages**, **zero
-unresolved references**, **1 overfull hbox (9.1 pt)**, **zero overfull vboxes**.
-Every one of those 70 pages is scaffolding — there is no chapter prose yet
-beyond the introduction.
+Build is clean: `latexmk -pdf main.tex` returns 0, **87 pages**, **zero
+unresolved references**, **3 overfull hboxes (9.9 / 9.1 / 0.3 pt)**, **zero
+overfull vboxes**. Chapter 1 is 17 of those pages; the rest is scaffolding.
 
 **Debt ledgers, reported by CI on every build:**
-- 23 chapters and appendices not yet written (`make stubs`)
+- 22 chapters and appendices not yet written (`make stubs`)
 - 0 screenshots requested so far
-- 0 `verifybox` blocks (nothing has been claimed yet, so nothing is unverified)
-- 3 Mermaid sources; all render
+- **0 `verifybox` blocks.** Every listing in Chapter 1 was executed against the
+  pinned versions, so none needed one. Keep it that way.
+- 4 Mermaid sources; all render
 
 **Five experiments are specified across the chapters and none has been run.**
 See *Measurement debt* below. Appendix B's results tables stay empty until they
@@ -226,8 +226,8 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Three diagrams exist: `lc-lg-layering`, `lc-timeline`, `async-event-loop`. Only
-the first is referenced by a chapter so far.
+Four diagrams exist: `lc-lg-layering`, `lc-timeline`, `lc-package-map`,
+`async-event-loop`. Chapter 1 references the first three.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -247,9 +247,17 @@ CI runs the diagram render and the LaTeX build as separate jobs, fails on any
 unresolved cross-reference, and publishes the debt ledgers to the step summary.
 A third job compares the pins against PyPI and is advisory only.
 
-### Two build traps already hit and fixed
+### Three build traps already hit and fixed
 
-Both cost time; neither is obvious from the error message.
+Each cost time; none is obvious from its error message.
+
+- **A `literate` mapping for U+00A0 (non-breaking space) makes `listings` abort
+  the run.** `Improper alphabetic constant`, fatal, no PDF, and the message names
+  neither the character nor the line. It is the obvious next entry to add to the
+  literate list and it must not be added. Every other mapping in that list —
+  Polish diacritics, dashes, smart quotes, the degree sign — is fine; only the
+  non-breaking space is poison. Note that **maf-book's preamble carries this
+  mapping**, so it is presumably latent there too.
 
 - **`babel` with a missing language is fatal, not a warning.** Loading
   `[polish]` on a TeX installation without `texlive-lang-polish` aborts the run
@@ -268,10 +276,62 @@ Adding a long-titled chapter without ragged-right will reintroduce that.
 
 ## Resolved questions
 
-*(Nothing yet. As each chapter is written against the source, record here
-anything that contradicted the brief — the maf-book experience was that every
-single chapter pass turned up at least one such thing, including contradictions
-of notes written during an earlier pass.)*
+### Chapter 1 pass, August 2026
+
+Verified against the installed packages at the pinned versions, plus PyPI
+release metadata. **The brief was wrong about two things**, exactly as the
+maf-book experience predicted.
+
+**1. The 1.0 release date is 17 October 2025, not the 22nd.** PyPI upload times
+put `langchain` 1.0.0, `langgraph` 1.0.0 and `langchain-classic` 1.0.0 all on
+2025-10-17 — the same day, a coordinated release. The 22nd is the announcement.
+The book uses upload dates throughout, because that is the date the installable
+thing changed. **Corrected in `frontmatter/introduction.tex`, `README.md` and
+`docs/index.html` as well as in the chapter.**
+
+**2. `create_react_agent` is deprecated, not removed.** The brief listed it with
+`AgentExecutor` and `LLMChain` as retired. It imports fine from
+`langgraph.prebuilt`, still works, and carries a deprecation decorator against a
+warning category named `LangGraphDeprecatedSinceV10`. Chapter 1 §1.2.4 now says
+so and uses it as the chapter's worked example of why the package beats the
+documentation.
+
+**Confirmed, and now usable by later chapters:**
+
+- **The dependency direction, from packaging metadata.** `langchain` requires
+  `langchain-core<2.0.0,>=1.4.9` and `langgraph<1.3.0,>=1.2.5`. `langgraph`
+  requires `langchain-core` and never mentions `langchain`. That is the
+  inversion, stated by the build system.
+- **`create_agent` returns `CompiledStateGraph`** — it is the declared return
+  annotation, and at runtime the MRO is `CompiledStateGraph → Pregel →
+  PregelProtocol → Runnable → ABC`. Nodes are `__start__`, `model`, `tools`,
+  `__end__`. **This demo runs with a `GenericFakeChatModel` and needs no API
+  key**, which makes it reusable anywhere in the book.
+- **Node count is invariant** under adding tools or a system prompt, and under
+  passing a checkpointer. A checkpointer changes `agent.checkpointer` and
+  nothing in `get_graph()`. Both are Chapter 1 exercises and both were run.
+- **`langchain` has 6 submodules; `langchain-classic` has 43.** `langchain.chains`,
+  `.memory`, `.retrievers` and `.hub` do not exist — plain `ModuleNotFoundError`
+  with no hint that `langchain-classic` is where they went. Worth remembering for
+  Appendix A's migration section.
+- **`langchain-classic` 1.0.8 really does carry the whole retired surface**
+  working: `AgentExecutor`, `initialize_agent`, `create_react_agent`,
+  `LLMChain`, `ConversationChain`, `RetrievalQA` all present.
+- **Release cadence, Jan–Jul 2026:** `langchain-core` 49 stable releases,
+  `langchain` 36, `langgraph` 27. None breaking. `deepagents` is still pre-1.0
+  with 52 releases this year — it published one *while Chapter 1 was being
+  written*, making the preamble pin one behind the same day. Chapter 1 uses that
+  as an honest illustration; do not quietly fix the pin without also fixing the
+  anecdote.
+
+**Method note.** The scratch-venv route works well and should be the default:
+`uv venv scratch && VIRTUAL_ENV=scratch uv pip install <pkg>==<pin>`, then read
+or introspect. That is how `langchain-classic` was checked without adding it to
+the mini-project's dependencies.
+
+*(As each further chapter is written against the source, record here anything
+that contradicted the brief — including contradictions of notes written during
+an earlier pass.)*
 
 ### Verified at scaffolding time, August 2026
 

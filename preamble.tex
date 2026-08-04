@@ -154,10 +154,17 @@
   captionpos=b,
   aboveskip=1.2em,
   belowskip=1.2em,
+  % Maps the characters most likely to be pasted into a listing by accident.
+  %
+  % Do NOT add a mapping for U+00A0 (non-breaking space) here. It looks like the
+  % obvious next entry and it makes `listings` abort the run with "Improper
+  % alphabetic constant" -- a fatal error that names neither the character nor
+  % this line. The ASCII-in-listings convention is what guards against it
+  % instead; see CLAUDE.md.
   literate={ł}{{\l}}1 {Ł}{{\L}}1 {ą}{{\k a}}1 {ę}{{\k e}}1
            {ś}{{\'s}}1 {ć}{{\'c}}1 {ż}{{\.z}}1 {ź}{{\'z}}1 {ó}{{\'o}}1 {ń}{{\'n}}1
            {—}{{-{}-}}2 {–}{{-}}1 {‘}{{'}}1 {’}{{'}}1
-           {“}{{"}}1 {”}{{"}}1 {°}{{\textdegree}}1 { }{{~}}1
+           {“}{{"}}1 {”}{{"}}1 {°}{{\textdegree}}1
 }
 
 \lstset{style=lccode}

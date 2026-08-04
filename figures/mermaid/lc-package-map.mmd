@@ -1,0 +1,38 @@
+graph BT
+  subgraph contracts["The contracts — 33 submodules"]
+    CORE["langchain-core 1.5.3<br/><i>Runnable, messages,<br/>tools, base classes</i>"]
+  end
+
+  subgraph runtime["The runtime"]
+    LG["langgraph 1.2.10<br/><i>StateGraph, Pregel,<br/>functional API</i>"]
+    CP["langgraph-checkpoint 4.1.1"]
+    PRE["langgraph-prebuilt 1.1.0"]
+    SDK["langgraph-sdk 0.4.2"]
+  end
+
+  subgraph convenience["The convenience layer — 6 submodules"]
+    LC["langchain 1.3.14<br/><i>create_agent, middleware,<br/>init_chat_model</i>"]
+  end
+
+  subgraph optional["Chosen per project"]
+    PROV["langchain-openai<br/>langchain-anthropic<br/>...one per provider"]
+    STORE["langgraph-checkpoint-postgres<br/>-sqlite, -redis"]
+    CLASSIC["langchain-classic 1.0.8<br/><i>43 submodules, maintenance</i>"]
+  end
+
+  LG --> CORE
+  CP --> CORE
+  PRE --> CORE
+  LC --> CORE
+  LC --> LG
+  LG --> CP
+  LG --> PRE
+  LG --> SDK
+  PROV --> CORE
+  STORE --> CP
+  CLASSIC --> CORE
+
+  LCNOTE["langchain depends on langgraph.<br/>Nothing depends on langchain."]:::note
+  LC -.- LCNOTE
+
+  classDef note fill:#FDF3E0,stroke:#B26A00,stroke-width:1px,color:#5A5A5A

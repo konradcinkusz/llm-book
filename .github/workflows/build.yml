@@ -154,7 +154,9 @@ jobs:
 
             echo "### Listings not yet run against the pinned versions"
             echo ""
-            VERIFY=$(grep -rc 'begin{verifybox}' chapters appendices frontmatter 2>/dev/null \
+            # chapters and appendices only -- the introduction contains one of
+            # each admonition as a specimen, which is not debt.
+            VERIFY=$(grep -rc 'begin{verifybox}' chapters appendices 2>/dev/null \
                      | awk -F: '{s+=$2} END {print s+0}')
             echo "\`verifybox\` blocks outstanding: **$VERIFY**"
             echo ""

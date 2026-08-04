@@ -12,17 +12,22 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **This is a skeleton, not a draft.** The structure, build, diagram pipeline and
-> per-chapter briefs are in place and the book compiles clean. **No chapter has
-> been written yet.** Every chapter file currently prints a visible
-> *NOT YET WRITTEN* box carrying its own brief, and CI reports the count on every
-> build, so the page count never flatters the state of the work.
+> **Chapter 1 is written. Chapters 2–17 are not.** The structure, build and
+> diagram pipeline are in place and the book compiles clean at 87 pages. Every
+> unwritten chapter prints a visible *NOT YET WRITTEN* box carrying its own
+> brief, and CI reports the count on every build, so the page count never
+> flatters the state of the work.
+>
+> Every listing in Chapter 1 was executed against the pinned versions, so the
+> chapter carries no *run this before you trust it* markers. That is the standard
+> the rest of the book is held to.
 
 ---
 
 ## Why this book
 
-LangChain 1.0 landed on 22 October 2025 and removed the three abstractions that
+LangChain 1.0 was published on 17 October 2025 (and announced the following
+week). It removed the three abstractions that
 almost every tutorial before it was built on — `AgentExecutor`,
 `initialize_agent` and `LLMChain` — while inverting the relationship between the
 two libraries. `langchain` is now a thin layer over `langgraph`'s runtime, and

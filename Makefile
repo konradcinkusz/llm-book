@@ -69,7 +69,10 @@ debt:
 	@echo "== Screenshots outstanding =="; $(MAKE) -s shots
 	@echo
 	@printf "== verifybox blocks: "
-	@grep -rc 'begin{verifybox}' chapters appendices frontmatter 2>/dev/null \
+	@# chapters and appendices only. The introduction contains one of each
+	@# admonition as a specimen, and counting those as debt makes the ledger
+	@# lie by a constant.
+	@grep -rc 'begin{verifybox}' chapters appendices 2>/dev/null \
 	  | awk -F: '{s+=$$2} END {print s+0}'
 	@printf "== mermaid sources: "
 	@ls figures/mermaid/*.mmd 2>/dev/null | wc -l
