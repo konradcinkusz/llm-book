@@ -11,23 +11,24 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3, 7, 8–11** | 2, 4–6, 12–17, stubbed |
+| Chapters | **1, 3, 7, 8–11, 13** | 2, 4–6, 12, 14–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **162 pages**, **zero
-unresolved references**, **10 overfull hboxes, none above 10 pt**, **zero
-overfull vboxes**. Seven chapters are written and are 92 of those pages.
+Build is clean: `latexmk -pdf main.tex` returns 0, **172 pages**, **zero
+unresolved references**, **11 overfull hboxes, none above 10 pt**, **zero
+overfull vboxes**. Eight chapters are written and are 102 of those pages.
 **Part III is complete.**
 
 **Debt ledgers, reported by CI on every build:**
-- 16 chapters and appendices not yet written (`make stubs`)
+- 15 chapters and appendices not yet written (`make stubs`)
 - 1 screenshot outstanding: `studio-multi-agent`
 - **0 `verifybox` blocks.** Every listing in the written chapters was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 24 Mermaid sources; all render
+- 27 Mermaid sources; all render
 
-**One of the five experiments has been run** (experiment 1, Chapter 3). The other
-four have not. See *Measurement debt* below.
+**Measurement: 2½ of 5 experiments run.** Experiment 1 (Chapter 3), experiment 2
+(Chapter 13) and the structural half of experiment 5 (Chapter 11). See
+*Measurement debt* below.
 
 ---
 
@@ -193,7 +194,7 @@ judgement, and Appendix B's tables stay empty.
 | # | Chapter | Experiment | Cost | State |
 |---|---|---|---|---|
 | 1 | 3 §3.5 | Sequential vs `gather` vs `TaskGroup` vs capped, 20 calls over real sockets; median of 10 | Free | **DONE** |
-| 2 | 13 | Concurrent conversations per process against p50/p95, with and without one blocking call | Free — mocked provider | not run |
+| 2 | 13 | Concurrent conversations per process against p50/p95, with and without one blocking call | Free — mocked provider | **DONE** |
 | 3 | 12 | Cost per conversation across four context strategies, plus cache hit rate; 10 conversations × 10 turns | Cheap | not run |
 | 4 | 6 | Tool-selection accuracy: 5 vs 20 tools × terse vs descriptive docstrings, 30 queries × 20 runs | Moderate | not run |
 | 5 | 11 | **The headline.** Single agent vs five topologies on one fixed task; turn count, token cost, latency, success rate; ≥20 runs each | Highest | **structural half DONE**, quality half not run |
@@ -202,6 +203,35 @@ Do the rest in that order — 2 is free and produces the most persuasive graph i
 the book. For 4 and 5, **keep the raw event streams, not just the summary
 rows**: Chapter 14 re-scores the same runs under an evaluation harness, and
 re-running to recover traces is expensive.
+
+### Experiment 2 — run, August 2026
+
+Script: `code/ch13/bench_service.py`. FastAPI under uvicorn **in a separate
+process**, driven over real HTTP, provider mocked at 100 ms. 400 requests per
+cell.
+
+| Conc. | Mode | p50 | p95 | Throughput |
+|---|---|---|---|---|
+| 1 | clean | 103 ms | 104 ms | 10/s |
+| 10 | clean | 102 ms | 108 ms | 97/s |
+| 20 | clean | 103 ms | 110 ms | 190/s |
+| 40 | clean | 103 ms | 159 ms | 349/s |
+| 40 | blocking | 164 ms | 329 ms | 194/s |
+| 40 | threaded | 102 ms | 197 ms | 332/s |
+
+**Latency flat, throughput linear** — 1 → 40 concurrent, p50 unmoved at ~103 ms,
+throughput 10 → 349/s in one process. **One request in twenty blocking cost 44%
+of throughput**, raised p50 60%, and degraded the nineteen innocent requests.
+`to_thread` recovered nearly all of it.
+
+**Two methodological errors, both instructive and both written into the chapter.**
+The first version ran uvicorn and the load driver on one event loop, so the
+driver inflated the server's latency and the clean baseline degraded for no
+reason. The second put the server in its own process but pushed concurrency to
+100, where the *client* saturated — producing the tell-tale absurdity of the
+blocking scenario out-throughputting the clean one. The script now calibrates
+against a no-op endpoint and flags any cell within half its own ceiling. Do this
+for any future load test in this book.
 
 ### Experiment 1 — run, August 2026
 
@@ -260,7 +290,7 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Twenty-four diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
+Twenty-seven diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
 `lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
 `async-gather-vs-taskgroup`, `async-blocking-call`; Chapter 8 uses
 `lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`;
@@ -268,7 +298,8 @@ Chapter 9 uses `lg-replay-boundary`, `lg-checkpointer-vs-store`,
 `lg-durability-modes`; Chapter 10 uses `hitl-interrupt-resume`, `lg-time-travel`,
 `stream-projections`, `double-texting-policies`; Chapter 7 uses `agent-loop`,
 `middleware-order`, `middleware-aspnet`; Chapter 11 uses `ma-topologies`,
-`ma-supervisor-turns`, `ma-handoff-loop`.
+`ma-supervisor-turns`, `ma-handoff-loop`; Chapter 13 uses `svc-architecture`,
+`svc-thread-lock`, `svc-sse-flow`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -649,6 +680,30 @@ work** — the sentence worth remembering from this chapter.
 count and context size before answering from a script — is the seed of the
 mini-project's stage 08 comparison harness and belongs in CI, since it needs no
 provider.
+
+### Chapter 13 pass, August 2026
+
+**Experiment 2 is done** — see *Measurement debt* above for the numbers and for
+the two methodological errors that produced them, which are worth re-reading
+before running experiments 3 or 4.
+
+**The concurrent-thread hazard is sharper than the brief said.** The brief
+described "interleaved state, corrupted thread". Measured with two concurrent
+`ainvoke` calls on one `thread_id`, what actually happens is that **one request
+vanishes entirely**:
+
+```
+UNLOCKED:  req-2, A saw 1 messages, B saw 2 messages      <- req-1 is gone
+LOCKED:    req-1, A saw 1, B saw 2, req-2, A saw 4, B saw 5
+```
+
+Both runs load the same checkpoint, both run, last writer wins. No error, no log
+line. "One user's message and the entire response to it disappeared" is both more
+accurate and more alarming than "interleaved", and §13.5 says it that way.
+
+**Reusable:** the demonstration is free (`InMemorySaver`, two `ainvoke` calls
+under `gather`) and belongs in the mini-project's CI. It is the test most
+implementations lack.
 
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during

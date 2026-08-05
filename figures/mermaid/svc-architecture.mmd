@@ -1,0 +1,30 @@
+graph TB
+  B["browser / mobile client"] -->|"SSE"| LB["load balancer"]
+  LB --> P1["pod 1<br/>agent built in lifespan"]
+  LB --> P2["pod 2<br/>agent built in lifespan"]
+  LB --> P3["pod 3<br/>agent built in lifespan"]
+
+  P1 --> PG[("Postgres<br/>checkpointer + store")]
+  P2 --> PG
+  P3 --> PG
+
+  P1 --> PROV["model provider"]
+  P2 --> PROV
+  P3 --> PROV
+
+  P1 --> Q["queue<br/>long-running work"]
+  Q --> W["background workers"]
+  W --> PG
+
+  N1["Pods are STATELESS because state<br/>lives in Postgres. Any pod can pick up<br/>any conversation — that is what makes<br/>resume-on-another-pod work."]:::note
+  N2["...and that same property creates the<br/>one hazard: two pods running the SAME<br/>thread_id at once. Measured: one<br/>request's messages vanish entirely."]:::warn
+
+  PG -.- N1
+  PG -.- N2
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef db fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef note fill:#FFFFFF,stroke:#D8DEE4,color:#5A5A5A
+  classDef warn fill:#FBE9E9,stroke:#9B2C2C,color:#5A5A5A
+  class B,LB,P1,P2,P3,PROV,Q,W n
+  class PG db

@@ -12,9 +12,9 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **Chapters 1, 3, 7 and 8–11 are written. The rest are not.** Part III is
+> **Chapters 1, 3, 7, 8–11 and 13 are written. The rest are not.** Part III is
 > complete. The structure, build and diagram pipeline are in place and the book
-> compiles clean at 162 pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
+> compiles clean at 172 pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
 > its own brief, and CI reports the count on every build, so the page count never
 > flatters the state of the work.
 >
@@ -58,7 +58,7 @@ which over ninety per cent of wall-clock time is spent waiting on a network, and
 the interesting failure modes — a swallowed cancellation, an unbounded queue, a
 blocking call in a coroutine — show up in production rather than in a notebook.
 
-### Five experiments, one and a half run
+### Five experiments, two and a half run
 
 The book's differentiator is meant to be original measurement rather than
 assertion. Five experiments are fully specified in the chapters; **one has been
@@ -79,6 +79,19 @@ median of ten trials:
 A 16× difference from a one-line change — and `gather` and `TaskGroup` are
 indistinguishable, so that choice is about failure semantics and never about
 speed.
+
+**Experiment 2 (Chapter 13)** is done — a FastAPI service under uvicorn, real
+HTTP, mocked provider, 400 requests per cell:
+
+| Concurrency | Mode | p50 | Throughput |
+|---|---|---|---|
+| 1 | clean | 103 ms | 10/s |
+| 40 | clean | 103 ms | 349/s |
+| 40 | one-in-twenty blocking | 164 ms | 194/s |
+| 40 | same, via `to_thread` | 102 ms | 332/s |
+
+Latency flat, throughput linear — and **one request in twenty doing something
+blocking costs 44% of throughput** and degrades the nineteen that were innocent.
 
 **Experiment 5 (Chapter 11)** split in two, and the free half is done. Structural
 cost — model calls and context carried — is a property of the topology rather
