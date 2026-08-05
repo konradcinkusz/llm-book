@@ -21,6 +21,8 @@ standard content blocks.
 \section{The Runnable contract}
 \label{sec:runnable}
 \index{Runnable@\texttt{Runnable}}
+\index{Runnable@\texttt{Runnable}!batch}
+\index{asyncio!a-prefix convention}
 
 \mermaidfig{lc-runnable-surface}{%
   The whole interface. Everything in the ecosystem implements it.}{%
@@ -78,6 +80,8 @@ sized per process. Use \code{max\_concurrency} in the config, or do not use
 \section{Choosing a model}
 \label{sec:init-chat-model}
 \index{init\_chat\_model@\texttt{init\_chat\_model}}
+\index{model!provider selection}
+\index{packages!provider integrations}
 
 \begin{python}[caption={Two ways to name a model}, label={lst:init-model}]
 from langchain.chat_models import init_chat_model
@@ -106,6 +110,8 @@ calling. The mini-project reads its provider from configuration and nothing in
 \section{Messages, and the thing 1.0 fixed}
 \label{sec:content-blocks}
 \index{content\_blocks@\texttt{content\_blocks}}
+\index{message!types}
+\index{message!content blocks}
 
 Five message types --- system, human, AI, tool, and function (legacy). The
 interesting part is what an \api{AIMessage} carries:
@@ -144,6 +150,7 @@ to solve a problem that no longer exists.
 \subsection{Counting what it cost}
 \label{sec:usage-metadata}
 \index{cost!usage metadata}
+\index{usage\_metadata@\texttt{usage\_metadata}}
 
 \code{usage\_metadata} carries input and output token counts per call. It is the
 foundation of everything in Chapter~\ref{ch:context} and
@@ -160,6 +167,8 @@ recorded. Retrofitting them means re-running everything you wanted to compare.
 \section{Reliability at the model boundary}
 \label{sec:fallbacks}
 \index{with\_fallbacks@\texttt{with\_fallbacks}}
+\index{reliability!fallbacks}
+\index{retry}
 
 \begin{python}[caption={Degrading instead of failing}, label={lst:fallbacks}]
 robust = primary.with_fallbacks([secondary, tertiary])
@@ -198,6 +207,9 @@ your evaluation set (Chapter~\ref{ch:observability}).
 % ============================================================
 \section{Streaming, multimodality and reasoning}
 \label{sec:streaming-basics}
+\index{streaming!tokens}
+\index{multimodality}
+\index{reasoning content}
 
 \begin{python}[caption={The smallest streaming loop}, label={lst:astream}]
 async for chunk in model.astream(messages):

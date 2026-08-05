@@ -23,6 +23,7 @@ needs no provider, and takes under a minute to reproduce.
 \label{sec:event-loop}
 \index{asyncio!event loop}
 \index{concurrency!cooperative}
+\index{.NET!async comparison}
 
 One thread. One loop. It runs one piece of your code at a time and switches
 between pieces \emph{only} at an \code{await}.
@@ -58,6 +59,8 @@ thread am I on'' questions disappears, and with it \code{ConfigureAwait}.
 \label{sec:gil}
 \index{GIL}
 \index{concurrency!versus parallelism}
+\index{multiprocessing}
+\index{threading}
 
 The Global Interpreter Lock permits one thread at a time to execute Python
 bytecode. It is the most discussed and least usefully understood thing about the
@@ -111,6 +114,9 @@ language is going, not as something you have deployed.
 \label{sec:cold-coroutine}
 \index{coroutine!cold}
 \index{asyncio!create\_task}
+\index{coroutine!awaitable}
+\index{Task@\texttt{Task}}
+\index{Future@\texttt{Future}}
 
 This is the section that pays for the chapter.
 
@@ -155,6 +161,7 @@ time if you happen to be looking.
 
 \subsection{What \texorpdfstring{\code{create\_task}}{create-task} actually does}
 \label{sec:create-task}
+\index{asyncio!create\_task scheduling}
 
 The usual advice is that \code{create\_task} ``starts it immediately, in the
 background''. That is close enough to be useful and wrong enough to mislead when
@@ -185,6 +192,7 @@ sooner. It is that it will run \emph{without anyone awaiting it}.
 
 \subsection{The consequence}
 \label{sec:sequential-trap}
+\index{troubleshooting!accidental sequential}
 
 \begin{python}[caption={A queue wearing the costume of concurrency}, label={lst:seq-trap}]
 # Sequential. Each iteration waits for the previous one to finish.
@@ -237,6 +245,8 @@ clean up yourself. \\
 
 \subsection{The difference that matters}
 \label{sec:gather-vs-taskgroup}
+\index{asyncio!gather versus TaskGroup}
+\index{exception!ExceptionGroup}
 
 The \code{gather} row says siblings keep running. That is worth seeing, because
 ``keeps running'' means ``after your error handler has already run'':
@@ -297,6 +307,7 @@ not exit until it had finished being cancelled.
 
 \subsection{Structured concurrency}
 \label{sec:structured-concurrency}
+\index{structured concurrency!cancellation}
 
 \code{TaskGroup} is not a nicer \code{gather}. It is an instance of a design
 principle worth adopting deliberately: \textbf{a task may not outlive the block
@@ -319,6 +330,8 @@ does not.
 
 \subsection{Completion order, and the low-level option}
 \label{sec:as-completed}
+\index{asyncio!as\_completed}
+\index{asyncio!wait}
 
 \code{as\_completed} yields results as they finish, not in submission order:
 
@@ -348,6 +361,8 @@ to make.
 \section{The measurement}
 \label{sec:measurement}
 \index{measurement!concurrency}
+\index{measurement!method}
+\index{benchmark!localhost server}
 
 The claim under test: an I/O-bound workload interleaves almost perfectly under
 \code{asyncio}, and the ceiling is whatever cap you impose rather than anything
@@ -464,6 +479,7 @@ per-process, and size it accordingly.
 \label{sec:queues}
 \index{asyncio!Queue}
 \index{backpressure}
+\index{queue!bounded}
 
 \code{asyncio.Queue} is the producer/consumer primitive, and its most important
 argument is the one people leave off.
@@ -542,6 +558,7 @@ Chapter~\ref{ch:cancellation} takes it further.
 \label{sec:blocking}
 \index{asyncio!to\_thread}
 \index{blocking call}
+\index{troubleshooting!blocking call}
 
 The failure mode this chapter has been building towards, measured.
 
@@ -587,6 +604,8 @@ JSON parsing of a very large payload.
 
 \subsection{The two escape hatches}
 \label{sec:to-thread}
+\index{asyncio!run\_in\_executor}
+\index{thread pool}
 
 \begin{python}[caption={Getting blocking work off the loop}, label={lst:to-thread}]
 # Blocking I/O in a library with no async version: a thread.
@@ -624,6 +643,7 @@ symptom. It is a patch for a library you cannot replace, not an architecture.
 % ============================================================
 \section{Why this chapter is in a book about agents}
 \label{sec:why-async-agents}
+\index{agent!workload shape}
 
 Because an agent is the purest I/O-bound workload most engineers will ever
 deploy.

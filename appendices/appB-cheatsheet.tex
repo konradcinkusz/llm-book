@@ -8,6 +8,8 @@ open.
 % ============================================================
 \section{Imports}
 \label{sec:appB-imports}
+\index{cheat sheet!imports}
+\index{packages!import paths}
 
 The single most common thing to get wrong after 1.0 moved things.
 
@@ -49,6 +51,8 @@ from langsmith import evaluate, aevaluate, traceable
 % ============================================================
 \section{asyncio}
 \label{sec:appB-asyncio}
+\index{cheat sheet!asyncio}
+\index{asyncio!summary}
 
 \begin{python}[caption={The patterns}, label={lst:appB-async}]
 async with asyncio.TaskGroup() as tg:          # structured; cancels siblings
@@ -73,6 +77,8 @@ except asyncio.CancelledError:
 % ============================================================
 \section{LangChain}
 \label{sec:appB-langchain}
+\index{cheat sheet!LangChain}
+\index{middleware!ordering}
 
 \begin{python}[caption={Agent, tools, structured output}, label={lst:appB-lc}]
 agent = create_agent(
@@ -117,6 +123,9 @@ default.
 % ============================================================
 \section{LangGraph}
 \label{sec:appB-langgraph}
+\index{cheat sheet!LangGraph}
+\index{reducer}
+\index{checkpointer}
 
 \begin{python}[caption={State, graph, persistence}, label={lst:appB-lg}]
 class State(TypedDict):
@@ -157,6 +166,8 @@ read them.
 % ============================================================
 \section{.NET to Python}
 \label{sec:appB-dotnet}
+\index{.NET!concept mapping}
+\index{cheat sheet!.NET}
 
 \begin{center}
 \small
@@ -185,6 +196,8 @@ Durable Functions & LangGraph & Node = replay boundary \\
 % ============================================================
 \section{Measurements}
 \label{sec:appB-measurements}
+\index{measurement!summary}
+\index{measurement!what is unrun}
 
 Run, reproducible, no provider required.
 

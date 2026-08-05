@@ -53,6 +53,10 @@ agent, and the burden of proof is on the topology.
 \section{The five topologies}
 \label{sec:topologies}
 \index{multi-agent!topologies}
+\index{supervisor}
+\index{swarm}
+\index{orchestrator}
+\index{pipeline}
 
 \mermaidfig{ma-topologies}{%
   All five to the same scale, shaded by structural cost: green cheapest, amber
@@ -123,6 +127,7 @@ unannotated swarm draws as a set of disconnected agents.
 
 \subsection{Handoff loops}
 \label{sec:handoff-loops}
+\index{handoff!loops}
 
 The failure mode unique to swarms:
 
@@ -214,6 +219,7 @@ calls spent on a problem a conditional edge solves for free.
 
 \subsection{Model selection per role}
 \label{sec:model-per-role}
+\index{cost!model per role}
 
 The structural numbers suggest the obvious mitigation. Routing is a
 classification task and rarely needs the strongest model available; the work is
@@ -271,6 +277,8 @@ recommendation becomes concrete rather than cautious.
 % ============================================================
 \section{Debugging a multi-agent run}
 \label{sec:debugging-multi-agent}
+\index{debugging!multi-agent}
+\index{troubleshooting!namespace}
 
 The honest difficulty: when a five-agent system gives a poor answer, the question
 ``which agent went wrong'' is genuinely hard, because each agent's output is the

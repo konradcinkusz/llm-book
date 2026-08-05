@@ -18,6 +18,8 @@ times, and nothing in your test suite will tell you.
 \section{What the model actually receives}
 \label{sec:tool-schema}
 \index{tools!schema}
+\index{tool@\texttt{@tool}}
+\index{docstring}
 
 \begin{python}[caption={A tool, and the schema it generates}, label={lst:tool}]
 from langchain.tools import tool
@@ -81,6 +83,8 @@ enjoy, and measurably changes behaviour.
 % ============================================================
 \section{Async tools, and what a sync one costs}
 \label{sec:async-tools}
+\index{tools!async}
+\index{ainvoke@\texttt{ainvoke}}
 
 \begin{python}[caption={The shape to write in a service}, label={lst:async-tool}]
 @tool
@@ -109,6 +113,8 @@ a library they do not.
 % ============================================================
 \section{The round trip}
 \label{sec:tool-round-trip}
+\index{tools!round trip}
+\index{ToolMessage@\texttt{ToolMessage}}
 
 \mermaidfig{tool-round-trip}{%
   One turn with two tool calls. Note that both arrive in a single response.}{%
@@ -126,6 +132,7 @@ belongs in every production agent.
 
 \subsection{Errors are messages, not exceptions}
 \label{sec:tool-errors}
+\index{tools!error handling}
 
 A tool that raises does not necessarily fail the run. The failure can be returned
 to the model as a \api{ToolMessage}, which lets it correct itself --- retry with
@@ -148,6 +155,7 @@ streaming to a browser (Chapter~\ref{ch:security}).
 \section{Too many tools}
 \label{sec:tool-count}
 \index{tools!selection quality}
+\index{measurement!tool selection}
 
 Selection quality degrades as the tool count rises. The commonly cited threshold
 is somewhere around fifteen to twenty, it varies by model, and the mechanism is
@@ -189,6 +197,8 @@ table for it stays empty.
 \section{Structured output}
 \label{sec:structured-output}
 \index{structured output}
+\index{ToolStrategy@\texttt{ToolStrategy}}
+\index{ProviderStrategy@\texttt{ProviderStrategy}}
 
 When you need a typed object rather than prose, declare the shape:
 

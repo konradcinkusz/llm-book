@@ -12,6 +12,7 @@ properly --- because an answer you can only recite does not survive a follow-up.
 % ============================================================
 \section{Async Python}
 \label{sec:appD-async}
+\index{interview!async Python}
 
 \textbf{Concurrency versus parallelism?} Concurrency is interleaving on one
 thread at \code{await} points --- ideal for I/O. Parallelism is simultaneous
@@ -50,6 +51,7 @@ lost they report passed without executing.
 % ============================================================
 \section{LangChain}
 \label{sec:appD-langchain}
+\index{interview!LangChain}
 
 \textbf{LangChain versus LangGraph?} Not alternatives. LangGraph is the
 runtime; LangChain 1.x is a thin layer over it. The agent factory returns a
@@ -81,6 +83,7 @@ Prompted JSON is a pre-1.0 pattern. And a schema constrains shape, never truth.
 % ============================================================
 \section{LangGraph}
 \label{sec:appD-langgraph}
+\index{interview!LangGraph}
 
 \textbf{How does state work?} A \code{TypedDict}; nodes return partial updates.
 Without a reducer a key is overwritten; with one it is merged. Two parallel
@@ -129,6 +132,7 @@ for a supervisor, and three of its five calls are routing rather than work
 % ============================================================
 \section{Production and system design}
 \label{sec:appD-production}
+\index{interview!system design}
 
 \textbf{Design a service for a thousand concurrent users.} FastAPI, agent built
 once in \code{lifespan}, \code{AsyncPostgresSaver} on a shared database so pods
@@ -171,6 +175,7 @@ survives.
 % ============================================================
 \section{Questions worth asking them}
 \label{sec:appD-ask}
+\index{interview!questions to ask}
 
 \begin{itemize}[leftmargin=1.4em,nosep]
 \item Where is your split between \api{create\_agent} and raw
@@ -187,6 +192,7 @@ this in production.
 % ============================================================
 \section{Phrasing}
 \label{sec:appD-phrasing}
+\index{interview!phrasing}
 
 \begin{center}
 \small

@@ -16,6 +16,7 @@ been repeated without checking ever since.
 % ============================================================
 \section{When not to use a framework}
 \label{sec:no-framework}
+\index{framework!when not to use}
 
 \mermaidfig{eco-decision-tree}{%
   The decision, with the honest answer at the top.}{%
@@ -48,6 +49,8 @@ discovering that in six months.
 \section{MCP}
 \label{sec:mcp}
 \index{MCP}
+\index{MCP!adapters}
+\index{packages!mcp-adapters}
 
 The Model Context Protocol decouples tool \emph{execution} from agent
 \emph{logic}. Tools live behind servers speaking a standard protocol;
@@ -79,6 +82,7 @@ starts paying --- and the mini-project's own answer, in stage 13, may well be
 % ============================================================
 \section{Deep Agents}
 \label{sec:deep-agents}
+\index{deepagents@\texttt{deepagents}}
 
 \pkg{deepagents} builds planning, subagents and a virtual filesystem on top of
 LangGraph, aimed at long research-style tasks. The property worth knowing: it
@@ -96,6 +100,9 @@ it at arm's length from anything you must support.
 % ============================================================
 \section{The alternatives}
 \label{sec:alternatives}
+\index{alternatives!PydanticAI}
+\index{alternatives!OpenAI Agents SDK}
+\index{alternatives!CrewAI and AutoGen}
 
 \begin{center}
 \small
@@ -118,6 +125,8 @@ Microsoft Agent Framework & .NET-first, Azure-integrated, typed graph edges &
 
 \subsection{The bridge from .NET}
 \label{sec:maf-bridge}
+\index{.NET!Microsoft Agent Framework}
+\index{alternatives!Microsoft Agent Framework}
 
 \mermaidfig{eco-maf-langgraph}{%
   The concepts map almost one-for-one, and where they diverge is instructive.}{%
@@ -144,6 +153,7 @@ to MAF, to Temporal and to Durable Functions with the vocabulary changed.
 % ============================================================
 \section{Criticism worth taking seriously}
 \label{sec:criticism}
+\index{framework!criticism}
 
 Most published criticism of LangChain describes the pre-1.0 library and is
 therefore about something that no longer exists
@@ -193,6 +203,8 @@ have not looked since.
 % ============================================================
 \section{Protocols}
 \label{sec:protocols}
+\index{protocols!A2A}
+\index{protocols!AG-UI}
 
 Two worth a sentence each. \textbf{A2A} standardises agent-to-agent
 communication, so an agent in another organisation can be called like a local

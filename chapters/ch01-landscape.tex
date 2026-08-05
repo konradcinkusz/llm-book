@@ -31,6 +31,8 @@ and they did, on a date and on a deprecation --- the package won.
 \label{sec:timeline}
 \index{LangChain!timeline}
 \index{LangGraph!timeline}
+\index{release!1.0 date}
+\index{versioning!the 1.0 line}
 
 Ecosystem history is normally trivia. Here it is operational, because the
 architecture changed underneath a very large body of published material that was
@@ -76,6 +78,8 @@ third package.
 
 \subsection{The 2.0 commitment}
 \label{sec:two-oh}
+\index{versioning!2.0 commitment}
+\index{semantic versioning}
 
 The 1.0 line carries a public commitment to no breaking changes before 2.0. That
 is worth exactly as much as any such commitment, which is to say: it is a
@@ -97,6 +101,7 @@ conceptual material is finally worth learning properly instead of provisionally.
 \index{LLMChain@\texttt{LLMChain}}
 \index{initialize\_agent@\texttt{initialize\_agent}}
 \index{packages!classic}
+\index{migration!removed abstractions}
 
 Three names dominate pre-1.0 material:
 
@@ -146,6 +151,7 @@ one line of error text could have said.
 \subsection{Where it all went}
 \label{sec:classic}
 \index{packages!classic}
+\index{migration!where things went}
 
 Nothing was deleted from the world; it was moved. \pkg{langchain-classic}
 carries the entire retired surface, and carries it working:
@@ -169,6 +175,8 @@ on.
 
 \subsection{The scale of the slimming, in one number}
 \label{sec:slimming}
+\index{packages!submodule count}
+\index{ModuleNotFoundError@\texttt{ModuleNotFoundError}}
 
 The clearest measure of what 1.0 did is a submodule count. Both numbers below
 come from walking the installed packages:
@@ -201,6 +209,8 @@ define a tool, and how you avoid being rate-limited. Everything that was a
 \subsection{The fourth name, and a correction}
 \label{sec:react-agent}
 \index{create\_react\_agent@\texttt{create\_react\_agent}}
+\index{deprecation!create\_react\_agent}
+\index{deprecation!warning category}
 
 Material of a certain vintage --- and a certain amount of material written since
 --- also names \code{langgraph.prebuilt.create\_react\_agent}. It is commonly
@@ -258,6 +268,8 @@ so in a box.
 \index{packages!map}
 \index{packages!core}
 \index{packages!langgraph}
+\index{packages!anthropic}
+\index{packages!langsmith}
 
 There are four kinds of distribution in this ecosystem and it is worth being able
 to name which kind you are looking at.
@@ -287,6 +299,8 @@ Chosen per project & one provider package per model vendor; one checkpointer
 
 \subsection{The dependency direction is the whole argument}
 \label{sec:dependency-direction}
+\index{inversion}
+\index{packages!dependency direction}
 
 You do not have to take the layering on trust. It is declared in the packaging
 metadata, and it points one way:
@@ -322,6 +336,8 @@ complete description of an environment. Pin the lot, in a lockfile.
 
 \subsection{How fast this moves}
 \label{sec:cadence}
+\index{release cadence}
+\index{packages!deepagents}
 
 One number, because it sets the expectation for everything that follows. Counting
 stable releases published to PyPI between January~2026 and the end of July:
@@ -377,6 +393,8 @@ That one is worth proving directly, and it can be proved without an API key.
 
 \subsection{What \texorpdfstring{\api{create\_agent}}{create\_agent} returns}
 \label{sec:what-create-agent-returns}
+\index{create\_agent@\texttt{create\_agent}!return type}
+\index{GenericFakeChatModel@\texttt{GenericFakeChatModel}}
 
 Start with the signature. The return annotation is not a wrapper type and not an
 opaque handle:
@@ -447,6 +465,7 @@ can enumerate.
 \subsection{Printing the graph}
 \label{sec:printing-graph}
 \index{workflow!visualisation}
+\index{get\_graph@\texttt{get\_graph}}
 
 Because it is a real graph, it draws itself:
 
@@ -477,6 +496,7 @@ stops being obvious.
 
 \subsection{Why this is the chapter's most useful fact}
 \label{sec:inversion-consequences}
+\index{troubleshooting!which library}
 
 Three consequences follow immediately, and each is a chapter later in the book.
 
@@ -513,6 +533,7 @@ failed.
 \section{Dating a piece of LangChain material in ten seconds}
 \label{sec:dating}
 \index{troubleshooting!stale material}
+\index{migration!dating material}
 
 This is the most immediately useful section in the chapter, and it is a lookup
 table.

@@ -105,6 +105,7 @@ are.
 \section{Projecting tool results}
 \label{sec:projection}
 \index{tools!result projection}
+\index{ClearToolUsesEdit@\texttt{ClearToolUsesEdit}}
 
 The fix is unglamorous and it is the highest-leverage change in this book:
 
@@ -155,6 +156,7 @@ removed and how to get it.
 \section{Compaction}
 \label{sec:compaction}
 \index{summarisation}
+\index{ContextEditingMiddleware@\texttt{ContextEditingMiddleware}}
 
 For conversations long enough that even projected history grows, summarisation
 replaces old turns with a summary. Chapter~\ref{ch:agents} covered the
@@ -190,6 +192,7 @@ projection is not enough.
 \section{Prompt caching}
 \label{sec:prompt-caching}
 \index{prompt caching}
+\index{cost!cache hit rate}
 
 Most providers will cache a prefix of your request and charge substantially less
 for the cached part. The saving is large and the mechanism is unforgiving:
@@ -244,6 +247,8 @@ the cache.
 % ============================================================
 \section{Degradation before the limit}
 \label{sec:degradation}
+\index{context window!degradation}
+\index{lost in the middle}
 
 Context does not fail at the limit. It degrades before it, and the practical rule
 is more useful than the literature.
@@ -276,6 +281,8 @@ version tested. The structural advice above holds regardless of the number.
 % ============================================================
 \section{Tools and memory in the budget}
 \label{sec:tools-memory-context}
+\index{tools!definition cost}
+\index{tokens!counting}
 
 Two smaller consumers worth naming.
 

@@ -22,6 +22,8 @@ into a larger graph as one node, and it is measured in \S\ref{sec:composition}.
 \section{The signature}
 \label{sec:create-agent-signature}
 \index{create\_agent@\texttt{create\_agent}}
+\index{agent!system prompt}
+\index{agent!tools}
 
 Fourteen parameters, one of them required.
 
@@ -62,6 +64,7 @@ practical convenience.
 \section{The loop}
 \label{sec:agent-loop}
 \index{agent!loop}
+\index{agent!node graph}
 
 The agent is four nodes and one cycle.
 
@@ -102,6 +105,8 @@ inside it.
 \section{The six hooks}
 \label{sec:hooks}
 \index{middleware!hooks}
+\index{AgentMiddleware@\texttt{AgentMiddleware}}
+\index{middleware!async twins}
 
 A middleware is a class with one or more of six methods. Each has an async twin
 with an \code{a} prefix, following the convention from
@@ -152,6 +157,8 @@ a tool call, and how a cache returns a stored result without touching the model.
 \section{Ordering is behaviour}
 \label{sec:hook-order}
 \index{middleware!ordering}
+\index{middleware!ASP.NET comparison}
+\index{.NET!middleware pipeline}
 
 With more than one middleware the order is not cosmetic, and it is not uniform
 across the six hooks. This was measured rather than assumed: two identical
@@ -222,6 +229,9 @@ meant, and it will look right on a single-turn test.
 \section{The built-in catalogue}
 \label{sec:builtin}
 \index{middleware!built-in}
+\index{SummarizationMiddleware@\texttt{SummarizationMiddleware}}
+\index{PIIMiddleware@\texttt{PIIMiddleware}}
+\index{HumanInTheLoopMiddleware@\texttt{HumanInTheLoopMiddleware}}
 
 Sixteen middleware classes ship in the box. The eight that matter most:
 
@@ -273,6 +283,8 @@ agent = create_agent(
 
 \subsection{Three signatures worth checking before you copy them}
 \label{sec:signature-corrections}
+\index{middleware!signature corrections}
+\index{ModelCallLimitMiddleware@\texttt{ModelCallLimitMiddleware}}
 
 Widely circulated examples get these wrong, including the notes this book grew
 from.
@@ -317,6 +329,7 @@ this book.
 % ============================================================
 \section{Writing your own}
 \label{sec:custom-middleware}
+\index{middleware!writing your own}
 
 Two forms. The class form implements one or more hooks; the decorator form wraps
 a single function when that is all you need.

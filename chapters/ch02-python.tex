@@ -21,6 +21,10 @@ every library in this book.
 \section{The toolchain}
 \label{sec:toolchain}
 \index{uv@\texttt{uv}}
+\index{ruff@\texttt{ruff}}
+\index{mypy@\texttt{mypy}}
+\index{pytest@\texttt{pytest}}
+\index{pyproject.toml@\texttt{pyproject.toml}}
 
 \mermaidfig{py-toolchain}{%
   One configuration file, one lockfile, one command to run anything.}{%
@@ -58,6 +62,9 @@ makes \code{uv run ruff check .} behave identically on their machine and in CI.
 \section{Types are a linting convention}
 \label{sec:typing}
 \index{typing!Pydantic}
+\index{typing!gradual}
+\index{typing!strict mode}
+\index{BaseModel@\texttt{BaseModel}}
 
 \begin{python}[caption={This runs, and prints 7}, label={lst:no-runtime-types}]
 def add(a: int, b: int) -> int:
@@ -110,6 +117,10 @@ startup rather than at first use, and testable by construction.
 
 \subsection{The constructs you will actually meet}
 \label{sec:typing-constructs}
+\index{typing!Protocol}
+\index{typing!Optional and union}
+\index{typing!TypedDict}
+\index{typing!Annotated}
 
 \begin{center}
 \small
@@ -135,6 +146,8 @@ startup rather than at first use, and testable by construction.
 % ============================================================
 \section{Code that reads as C\#}
 \label{sec:non-pythonic}
+\index{.NET!idiom translation}
+\index{comprehension}
 
 The review checklist. None of these is wrong; all of them are noticed.
 
@@ -171,6 +184,9 @@ one-character difference between a habit and an outage.
 % ============================================================
 \section{Idioms worth adopting deliberately}
 \label{sec:idioms}
+\index{context manager}
+\index{dataclass}
+\index{f-string}
 
 \textbf{Context managers} for anything with a lifetime. \code{with} and
 \code{async with} are \code{using} and \code{await using}, and writing your own
@@ -191,6 +207,8 @@ p(x)]} is the LINQ you already write, spelled differently.
 % ============================================================
 \section{Structure and logging}
 \label{sec:project-structure}
+\index{logging!structured}
+\index{project layout}
 
 \begin{python}[caption={The layout this book assumes}, label={lst:layout}]
 src/ops_copilot/       # the package -- src layout, so tests import it installed

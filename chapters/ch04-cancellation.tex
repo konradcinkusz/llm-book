@@ -20,6 +20,8 @@ quickly. Chapter~\ref{ch:asyncio} is assumed throughout.
 \section{How cancellation actually works}
 \label{sec:cancellation}
 \index{CancelledError@\texttt{CancelledError}}
+\index{cancellation}
+\index{asyncio!cancel}
 
 \mermaidfig{async-cancellation}{%
   The lifecycle, and what swallowing the exception does to it.}{%
@@ -67,6 +69,8 @@ request that runs too long, it is a process that will not exit.
 
 \subsection{Shielding}
 \label{sec:shield}
+\index{asyncio!shield}
+\index{cancellation!shielding}
 
 Occasionally a section genuinely must finish --- committing a transaction,
 writing a checkpoint. \code{asyncio.shield} protects it:
@@ -90,6 +94,8 @@ appears to shut down while work continues invisibly.
 \section{Timeouts, at three levels}
 \label{sec:timeouts}
 \index{timeout}
+\index{asyncio!timeout}
+\index{timeout!levels}
 
 \begin{python}[caption={The modern form}, label={lst:timeout}]
 async with asyncio.timeout(30):
@@ -131,6 +137,7 @@ delivered. It is not a framework limitation --- it is arithmetic.
 \section{Context propagation}
 \label{sec:contextvars}
 \index{contextvars@\texttt{contextvars}}
+\index{.NET!AsyncLocal}
 
 A request id set at the edge should be visible in every log line the request
 produces, without being threaded through forty function signatures.
@@ -166,6 +173,8 @@ inside a task does not appear as a sibling of one started outside it.
 \section{The antipattern catalogue}
 \label{sec:antipatterns}
 \index{troubleshooting!async antipatterns}
+\index{cancellation!swallowed}
+\index{asyncio!fire and forget}
 
 Every one of these has cost somebody a production incident.
 
@@ -203,6 +212,9 @@ work, keep the reference.
 % ============================================================
 \section{Finding one in a running process}
 \label{sec:debugging-async}
+\index{debugging!async}
+\index{asyncio!all\_tasks}
+\index{asyncio!debug mode}
 
 \begin{python}[caption={Ask the loop to complain}, label={lst:debug-mode}]
 asyncio.run(main(), debug=True)      # or PYTHONASYNCIODEBUG=1
@@ -232,6 +244,8 @@ points straight at the cause.
 % ============================================================
 \section{Testing async code}
 \label{sec:testing-async}
+\index{testing!async}
+\index{pytest-asyncio@\texttt{pytest-asyncio}}
 
 \code{pytest-asyncio} with \code{asyncio\_mode = "auto"} means an
 \code{async def} test just runs. \code{anyio} is the alternative and also

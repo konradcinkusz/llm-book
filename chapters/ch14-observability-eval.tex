@@ -15,6 +15,8 @@ people who have run an agent in production from people who have built one.
 \section{Tracing}
 \label{sec:tracing}
 \index{observability!tracing}
+\index{LangSmith}
+\index{OpenTelemetry}
 
 Tracing switches on with environment variables --- \code{LANGSMITH\_TRACING},
 an API key, a project name --- and from that point every \api{Runnable} and every
@@ -43,6 +45,8 @@ undiagnosable without one.
 
 \subsection{The metrics worth a dashboard}
 \label{sec:metrics}
+\index{observability!metrics}
+\index{cost!per run}
 
 \begin{center}
 \small
@@ -68,6 +72,8 @@ Task completion & The only one that measures the product rather than the
 \section{Evaluation}
 \label{sec:evaluation}
 \index{evaluation}
+\index{evaluate@\texttt{evaluate}}
+\index{evaluation!dataset}
 
 The surface lives in \pkg{langsmith}:
 
@@ -101,6 +107,7 @@ agrees with the book.
 
 \subsection{Trajectory, not just the answer}
 \label{sec:trajectory}
+\index{evaluation!trajectory}
 
 This is the agent-specific part and the part most teams skip. Two agents can
 produce the same final text having done completely different things --- one
@@ -127,6 +134,7 @@ All four are deterministic, free, and computable from a trace. They belong in CI
 \subsection{Judges, and why an uncalibrated one is worse than none}
 \label{sec:judges}
 \index{evaluation!LLM as judge}
+\index{evaluation!calibration}
 
 For qualities you cannot check mechanically --- relevance, groundedness, tone ---
 a model scores the output. It works, and it has three failure modes worth naming:
@@ -146,6 +154,8 @@ upgraded silently moves every historical score.
 
 \subsection{In CI}
 \label{sec:eval-ci}
+\index{evaluation!in CI}
+\index{num\_repetitions@\texttt{num\_repetitions}}
 
 The mechanism is easy: run the set, compare against a threshold, fail the build.
 The difficulty is flakiness --- a genuinely non-deterministic system will cross a
@@ -161,6 +171,8 @@ current baseline rather than an absolute; and separate ``blocks the merge'' from
 \section{Testing}
 \label{sec:testing}
 \index{testing!fake models}
+\index{testing!no model calls}
+\index{FakeMessagesListChatModel@\texttt{FakeMessagesListChatModel}}
 
 \mermaidfig{test-pyramid-agents}{%
   What runs on every commit, and what is deliberately excluded.}{%
@@ -210,6 +222,7 @@ job is to detect that.
 % ============================================================
 \section{Prompts as configuration}
 \label{sec:prompt-versioning}
+\index{prompt!versioning}
 
 Changing a prompt without a deploy is attractive and is a trap in exactly one
 respect: it decouples the change from the thing that would have caught it. A

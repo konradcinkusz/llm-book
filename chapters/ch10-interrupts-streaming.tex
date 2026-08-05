@@ -30,6 +30,7 @@ notes before depending on the projection names.
 \label{sec:interrupt}
 \index{interrupt@\texttt{interrupt}}
 \index{human-in-the-loop}
+\index{Command@\texttt{Command}!resume}
 
 Three things are required and there is no fourth: a checkpointer, a
 \code{thread\_id}, and a JSON-serialisable payload.
@@ -133,6 +134,8 @@ confined to the node containing the \api{interrupt} call.
 % ============================================================
 \section{Four shapes of human involvement}
 \label{sec:hitl-patterns}
+\index{human-in-the-loop!patterns}
+\index{approval gate}
 
 The same primitive covers four distinct interaction designs, and naming them
 helps because they have different failure modes.
@@ -177,6 +180,7 @@ of.
 \label{sec:time-travel}
 \index{time travel}
 \index{get\_state\_history@\texttt{get\_state\_history}}
+\index{StateSnapshot@\texttt{StateSnapshot}}
 
 A checkpoint per superstep means the history is queryable:
 
@@ -257,6 +261,7 @@ plans for.
 \section{Streaming: the seven modes}
 \label{sec:stream-modes}
 \index{streaming!modes}
+\index{streaming!values and updates}
 
 The base API is \code{stream} / \code{astream} with a \code{stream\_mode}, and
 the seven values are:
@@ -305,6 +310,7 @@ and a domain event fills that gap far better than a spinner.
 \section{Event streaming v3}
 \label{sec:v3}
 \index{streaming!v3 projections}
+\index{streaming!beta warning}
 
 Above the raw modes sits a typed, projection-based API. It is opt-in: the
 \code{version} argument still defaults to \code{"v2"}, and passing \code{"v3"}
@@ -348,6 +354,8 @@ than requiring a separate poll of \code{get\_state}.
 
 \subsection{The tool-call projection, precisely}
 \label{sec:toolcall-projection}
+\index{streaming!tool calls}
+\index{troubleshooting!awaiting an attribute}
 
 Each item from \code{tool\_calls} carries the name, the id and the arguments
 immediately, and the result only once you have driven it:
@@ -389,6 +397,7 @@ async for call in stream.tool_calls:
 
 \subsection{Two projections at once}
 \label{sec:concurrent-projections}
+\index{streaming!concurrent projections}
 
 This is where Part~I pays off directly. A good agent UI shows tokens
 \emph{and} tool status simultaneously, and the projections are independent async
@@ -454,6 +463,7 @@ service-level behaviour; the design decision belongs here.
 \section{Double texting}
 \label{sec:double-texting}
 \index{double texting}
+\index{double texting!policies}
 
 A user sends a second message while the first is still running. On a
 single-threaded chat UI this is rare; on anything with a mobile client, a flaky

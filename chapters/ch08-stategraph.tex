@@ -27,6 +27,7 @@ describing it.
 \label{sec:when-stategraph}
 \index{StateGraph@\texttt{StateGraph}}
 \index{workflow!when to use a graph}
+\index{agent!versus graph}
 
 Chapter~\ref{ch:agents}'s \api{create\_agent} is the right tool for a loop:
 model decides, calls something, looks at the result, decides again. It is less
@@ -59,6 +60,7 @@ from a builder to the thing it builds.
 \index{superstep}
 \index{Pregel@\texttt{Pregel}}
 \index{workflow!execution model}
+\index{state!merge boundary}
 
 Execution is not ``walk the graph''. It is a sequence of \emph{supersteps}, and
 internalising that early explains most of what follows.
@@ -138,6 +140,8 @@ history. Chapter~\ref{ch:persistence} is where the durability half pays off.
 \label{sec:state-reducers}
 \index{reducer}
 \index{state!schema}
+\index{Annotated@\texttt{Annotated}}
+\index{reducer!operator.add}
 
 The state schema is a \code{TypedDict}, and each key optionally carries a reducer
 through \code{Annotated}:
@@ -236,6 +240,7 @@ the hard way.
 
 \subsection{Writing your own}
 \label{sec:custom-reducer}
+\index{reducer!custom}
 
 A reducer is an ordinary function of two arguments --- the current value and the
 update --- returning the new value:
@@ -277,6 +282,7 @@ against \code{f(f(x, b), a)}.
 \section{Input, output and private state}
 \label{sec:schemas}
 \index{state!input and output schemas}
+\index{state!private channels}
 
 The state a graph works with is usually wider than what a caller should send or
 see. Scratch space, retry counters, intermediate documents --- all necessary
@@ -322,6 +328,8 @@ you need input validation, do it at your API boundary with Pydantic
 \section{Nodes and edges}
 \label{sec:nodes-edges}
 \index{edge!conditional}
+\index{node}
+\index{edge!static}
 
 A node is a callable taking state and returning a partial update. An edge says
 what runs next. \code{START} and \code{END} are the two sentinels, and they are
@@ -383,6 +391,8 @@ def router(state) -> Command[Literal["billing", "technical"]]:
 
 \subsection{The annotation is load-bearing}
 \label{sec:command-annotation}
+\index{Command@\texttt{Command}!return annotation}
+\index{troubleshooting!missing edge}
 
 That \code{Command[Literal[...]]} return annotation looks like documentation. It
 is not. Without it the graph runs correctly and \emph{draws itself wrongly}:
@@ -415,6 +425,7 @@ visualisation that silently omits an edge is worse than no visualisation.
 
 \subsection{Crossing upwards}
 \label{sec:command-parent}
+\index{Command@\texttt{Command}!PARENT}
 
 Setting \code{graph=Command.PARENT} on a \api{Command} hands control from inside
 a subgraph to a node in the parent. That is the mechanism behind the swarm
@@ -426,6 +437,7 @@ rather than reporting back to a supervisor.
 \label{sec:send}
 \index{Send@\texttt{Send}}
 \index{fan-out}
+\index{map-reduce}
 
 Every edge so far was fixed at build time. \api{Send} creates edges at run time,
 one per item, each carrying its own input:
@@ -515,6 +527,8 @@ and never appear in the parent's state.
 
 \subsection{The trap}
 \label{sec:subgraph-duplication}
+\index{subgraph!reducer duplication}
+\index{troubleshooting!duplicated state}
 
 Here is the chapter's second surprise. A parent and a child share one key
 annotated \code{operator.add}, and the parent writes to it before calling the
@@ -553,6 +567,7 @@ deliberately in the parent.
 
 \subsection{Seeing inside}
 \label{sec:subgraph-streaming}
+\index{subgraph!streaming}
 
 By default a subgraph's internal steps do not appear in the parent's stream ---
 you see the child node's aggregate update and nothing else. Ask to see through
@@ -580,6 +595,7 @@ Chapter~\ref{ch:interrupts} builds the streaming surface on top of it.
 \label{sec:state-context-config}
 \index{context\_schema@\texttt{context\_schema}}
 \index{Runtime@\texttt{Runtime}}
+\index{Runtime@\texttt{Runtime}!store and writer}
 
 Three things get passed into a running graph and they are routinely confused. The
 distinction is worth getting right once.

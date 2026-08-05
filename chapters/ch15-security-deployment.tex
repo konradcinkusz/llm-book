@@ -16,6 +16,7 @@ control is enforced outside the model}.
 \section{Prompt injection}
 \label{sec:injection}
 \index{security!prompt injection}
+\index{security!untrusted content}
 
 \mermaidfig{sec-injection-path}{%
   The path, and four controls. None of them asks the model to decline.}{%
@@ -55,6 +56,7 @@ Egress policy & The sandbox cannot reach the internet, so exfiltration has
 \section{Authorisation}
 \label{sec:authz}
 \index{security!tool authorisation}
+\index{security!least privilege}
 
 The rule: \textbf{a tool runs with the user's permissions, not the service's.}
 
@@ -83,6 +85,7 @@ that can be overwritten mid-run and then persisted.
 \section{Personal data}
 \label{sec:pii}
 \index{security!PII}
+\index{security!retention}
 
 Three obligations, and the third is the one people miss.
 
@@ -116,6 +119,7 @@ will fail the first time someone asks a question about a deleted thread.
 \section{Cost}
 \label{sec:cost-control}
 \index{cost!budget}
+\index{cost!cap}
 
 Chapter~\ref{ch:context} measured 5$\times$ between context strategies and
 Chapter~\ref{ch:multi-agent} measured 2.8$\times$ between topologies. Those are
@@ -151,6 +155,7 @@ it into something a pull request can fail.
 \section{Sandboxing}
 \label{sec:sandbox}
 \index{security!sandbox}
+\index{security!code execution}
 
 If your agent executes code --- and the pressure to add that is considerable ---
 the model is now writing programs on your infrastructure from untrusted input.
@@ -169,6 +174,8 @@ and a compromised host --- that is the container and the network policy.
 % ============================================================
 \section{Deployment}
 \label{sec:deployment}
+\index{deployment!container}
+\index{deployment!migrations}
 
 \mermaidfig{deploy-shutdown}{%
   SIGTERM to exit, and the one thing that breaks all of it.}{%
@@ -199,6 +206,7 @@ handler at all.
 
 \subsection{Managed, or not}
 \label{sec:platform}
+\index{deployment!managed platform}
 
 LangGraph Platform provides the runtime this book has been building by hand:
 threads, runs, cron, queueing, scaling, and the double-texting policies from
@@ -212,6 +220,8 @@ which is free to operate. Chapter~\ref{ch:ecosystem} weighs it properly.
 % ============================================================
 \section{Pinning, in an ecosystem that ships weekly}
 \label{sec:pinning}
+\index{versioning!pinning}
+\index{packages!pinning}
 
 Chapter~\ref{ch:landscape} counted the cadence: dozens of releases a year across
 the core packages, none of them breaking within 1.x. That combination argues for

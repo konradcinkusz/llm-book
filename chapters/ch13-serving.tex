@@ -24,6 +24,7 @@ carry it, both run, both free.
 \section{Build the agent once}
 \label{sec:lifespan}
 \index{FastAPI!lifespan}
+\index{FastAPI!dependency injection}
 
 The most common defect in agent services, and the easiest to fix:
 
@@ -65,6 +66,8 @@ is gone.
 \section{How far one process goes}
 \label{sec:measurement-service}
 \index{measurement!service throughput}
+\index{throughput}
+\index{latency!p50 and p95}
 
 Chapter~\ref{ch:asyncio} measured the event loop in-process. This measures a
 service.
@@ -142,6 +145,7 @@ A load test that does not know its own ceiling is measuring itself.
 \section{Streaming to a client}
 \label{sec:sse}
 \index{streaming!server-sent events}
+\index{FastAPI!StreamingResponse}
 
 \begin{python}[caption={The chat endpoint}, label={lst:sse}]
 @app.post("/chat")
@@ -234,6 +238,8 @@ load-bearing here: swallow it and the server will not shut down, because
 \section{One run per thread}
 \label{sec:thread-lock}
 \index{thread\_id@\texttt{thread\_id}!concurrent runs}
+\index{concurrency!per-thread lock}
+\index{troubleshooting!vanished request}
 
 This is the hazard the architecture creates and does not solve, and it is the
 thing most implementations miss.
@@ -324,6 +330,7 @@ degraded service rather than an incident.
 
 \subsection{Three levels}
 \label{sec:timeout-levels}
+\index{timeout!three levels}
 
 \begin{center}
 \small
@@ -353,6 +360,8 @@ cannot put a deadline on, in a service whose entire job is bounded latency.
 % ============================================================
 \section{Blocking tools, and the thread-pool budget}
 \label{sec:blocking-tools}
+\index{thread pool!budget}
+\index{blocking call!in a tool}
 
 \S\ref{sec:measurement-service} priced one blocking call at 44\% of throughput,
 and priced the fix at almost nothing. But \code{to\_thread} is a patch with its
@@ -369,6 +378,8 @@ path.
 % ============================================================
 \section{Work that outlives a request}
 \label{sec:long-running}
+\index{background task}
+\index{queue!outliving a request}
 
 Some agent work takes minutes. It does not belong in a request-response cycle:
 browsers time out, load balancers cut idle connections, and a deploy kills

@@ -55,6 +55,8 @@ assistant remember that you prefer terse answers, three conversations later.
 
 \subsection{The store}
 \label{sec:store}
+\index{store!namespaces}
+\index{memory!cross-thread}
 
 The API is small, and it follows the \code{a}-prefix convention from
 Chapter~\ref{ch:models}: \code{get}, \code{put}, \code{search}, \code{delete},
@@ -99,6 +101,7 @@ and the mistake is writing everything and searching it badly.
 \section{The checkpointer}
 \label{sec:checkpointer}
 \index{thread\_id@\texttt{thread\_id}}
+\index{checkpoint}
 
 One argument at compile time and one config key at run time:
 
@@ -128,6 +131,7 @@ shared one conversation, and you would find out from a support ticket.
 
 \subsection{Rehydration is the point}
 \label{sec:rehydration}
+\index{checkpointer!rehydration}
 
 Surviving a crash inside one process is mildly interesting. Surviving into a
 process that never saw the original run is the property you actually deploy:
@@ -157,6 +161,8 @@ that takes no ambient state, and call it from everywhere.
 \subsection{The backends}
 \label{sec:backends}
 \index{checkpointer!backends}
+\index{AsyncPostgresSaver@\texttt{AsyncPostgresSaver}}
+\index{InMemorySaver@\texttt{InMemorySaver}}
 
 \begin{center}
 \small
@@ -272,6 +278,8 @@ which is a property of the node that you have to supply.
 
 \subsection{Designing the boundary}
 \label{sec:idempotency}
+\index{idempotency!key}
+\index{side effect!external}
 
 The fix is an idempotency key: a value that identifies the \emph{intent}, checked
 before the effect and recorded with it.
@@ -312,6 +320,7 @@ check and your call.
 
 \subsection{Three rules that follow}
 \label{sec:replay-rules}
+\index{replay!rules}
 
 \begin{enumerate}[leftmargin=1.4em]
 \item \textbf{Isolate side effects in their own node.} A node that retrieves,
@@ -382,6 +391,7 @@ Three arguments on \api{add\_node} handle the failures that are not your fault.
 
 \subsection{Retries}
 \label{sec:retry-policy}
+\index{RetryPolicy@\texttt{RetryPolicy}!defaults}
 
 \begin{python}[caption={Retrying a flaky dependency}, label={lst:retry}]
 from langgraph.types import RetryPolicy
@@ -421,6 +431,7 @@ does not improve reliability --- it multiplies the defect by
 \subsection{Timeouts, and a constraint worth the whole chapter}
 \label{sec:node-timeout}
 \index{NodeTimeoutError@\texttt{NodeTimeoutError}}
+\index{timeout!async nodes only}
 
 \code{add\_node(..., timeout=10)} bounds a single attempt. On an async node it
 does what you expect:
@@ -453,6 +464,7 @@ cannot put a deadline on.
 \subsection{Caching}
 \label{sec:cache-policy}
 \index{CachePolicy@\texttt{CachePolicy}}
+\index{caching!node}
 
 \begin{python}[caption={Not paying twice for the same input}, label={lst:cache}]
 from langgraph.types import CachePolicy

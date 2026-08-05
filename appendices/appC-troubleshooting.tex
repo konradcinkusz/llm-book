@@ -9,6 +9,8 @@ often each turns out to be the one.
 % ============================================================
 \section{The service degrades under load}
 \label{sec:tsA}
+\index{troubleshooting!degrading under load}
+\index{blocking call}
 
 \textbf{Symptom.} Latency rises across all endpoints. No errors. The traces show
 slow spans everywhere and nothing in particular.
@@ -26,6 +28,8 @@ large \code{json.loads}.
 % ============================================================
 \section{The process will not shut down}
 \label{sec:tsB}
+\index{troubleshooting!will not shut down}
+\index{cancellation!swallowed}
 
 \textbf{Cause.} A swallowed \code{CancelledError} --- often via bare
 \code{except:} rather than a deliberate catch. Chapter~\ref{ch:cancellation}.
@@ -36,6 +40,8 @@ large \code{json.loads}.
 % ============================================================
 \section{A task vanished}
 \label{sec:tsC}
+\index{troubleshooting!vanished task}
+\index{asyncio!fire and forget}
 
 \textbf{Symptom.} Background work sometimes does not happen. No error.
 
@@ -47,6 +53,8 @@ garbage-collected mid-flight.
 % ============================================================
 \section{\texorpdfstring{\api{InvalidUpdateError}}{InvalidUpdateError} at a key}
 \label{sec:tsD}
+\index{troubleshooting!InvalidUpdateError}
+\index{reducer}
 
 \begin{console}
 InvalidUpdateError: At key 'value': Can receive only one value per step.
@@ -62,6 +70,8 @@ field --- which is a real design question. Chapter~\ref{ch:stategraph}.
 % ============================================================
 \section{State does not persist between turns}
 \label{sec:tsE}
+\index{troubleshooting!state not persisting}
+\index{thread\_id@\texttt{thread\_id}}
 
 \textbf{Cause.} No \code{thread\_id}, or a different one each request. Missing
 entirely raises:
@@ -74,6 +84,8 @@ keys: thread_id, checkpoint_ns, checkpoint_id
 % ============================================================
 \section{The conversation vanished after a restart}
 \label{sec:tsF}
+\index{troubleshooting!lost after restart}
+\index{checkpointer!backends}
 
 \textbf{Cause.} \code{InMemorySaver} in production. It does not survive a restart
 and is not shared between pods. A run paused for approval simply ceases to exist.
@@ -82,6 +94,8 @@ Chapter~\ref{ch:persistence}.
 % ============================================================
 \section{The same side effect happened twice}
 \label{sec:tsG}
+\index{troubleshooting!duplicated side effect}
+\index{replay}
 
 \textbf{Cause.} A node replayed after a failure. The node boundary is the replay
 boundary --- everything after the last checkpoint runs again, including the
@@ -94,6 +108,8 @@ unguarded side effect multiplies the defect rather than improving reliability.
 % ============================================================
 \section{Work repeated after an approval}
 \label{sec:tsH}
+\index{troubleshooting!repeated after approval}
+\index{interrupt@\texttt{interrupt}!re-execution}
 
 \textbf{Cause.} Code before \api{interrupt} in the same node. Measured at twice
 in Chapter~\ref{ch:interrupts}. A node \emph{before} the gate is safe.
@@ -103,6 +119,8 @@ in Chapter~\ref{ch:interrupts}. A node \emph{before} the gate is safe.
 % ============================================================
 \section{The agent will not stop}
 \label{sec:tsI}
+\index{troubleshooting!runaway loop}
+\index{GraphRecursionError@\texttt{GraphRecursionError}}
 
 \begin{console}
 GraphRecursionError: Recursion limit of 25 reached without hitting a stop
@@ -120,6 +138,8 @@ model can act on rather than a stack trace. Add a call limit
 % ============================================================
 \section{The model calls the wrong tool, or stops calling tools}
 \label{sec:tsJ}
+\index{troubleshooting!wrong tool chosen}
+\index{tools!selection quality}
 
 \textbf{Cause, wrong tool.} The description. The name, docstring and field
 descriptions are the prompt (Ch.~\ref{ch:tools}).
@@ -130,6 +150,8 @@ fifteen to twenty. Structural fixes only: a selector, subagents, or MCP.
 % ============================================================
 \section{Costs rose without a traffic change}
 \label{sec:tsK}
+\index{troubleshooting!cost rose}
+\index{cost!per conversation}
 
 \textbf{Check, in order.} Tool results growing --- Chapter~\ref{ch:context}
 measured this as the dominant consumer at 84\%. Step count per run creeping up. A
@@ -139,6 +161,8 @@ expensive model.
 % ============================================================
 \section{Streaming works locally, buffers in production}
 \label{sec:tsL}
+\index{troubleshooting!buffered streaming}
+\index{streaming!server-sent events}
 
 \textbf{Cause.} A proxy buffering the response, or a middleware reading the whole
 body. Not your code.
@@ -149,6 +173,8 @@ body. Not your code.
 % ============================================================
 \section{A user's message disappeared}
 \label{sec:tsM}
+\index{troubleshooting!vanished request}
+\index{concurrency!per-thread lock}
 
 \textbf{Cause.} Two concurrent runs on one \code{thread\_id}. Both loaded the
 same checkpoint, both ran, last writer won. Measured in
@@ -160,6 +186,8 @@ Postgres advisory lock across pods.
 % ============================================================
 \section{Evaluation scores moved and nothing was deployed}
 \label{sec:tsN}
+\index{troubleshooting!scores moved}
+\index{evaluation!LLM as judge}
 
 \textbf{Causes.} The judge model was upgraded underneath you --- pin it. Or the
 run count is too low to separate signal from variance; use
@@ -169,6 +197,8 @@ run count is too low to separate signal from variance; use
 % ============================================================
 \section{The test suite is green and tests nothing}
 \label{sec:tsO}
+\index{troubleshooting!green but vacuous}
+\index{testing!fake models}
 
 \textbf{Cause.} \code{asyncio\_mode} lost from the pytest configuration. Every
 \code{async def} test is then never awaited and reports \emph{passed}.
@@ -179,6 +209,8 @@ Chapter~\ref{ch:cancellation}.
 % ============================================================
 \section{The drawn graph is missing an edge}
 \label{sec:tsP}
+\index{troubleshooting!missing edge}
+\index{workflow!visualisation}
 
 \textbf{Cause.} A node returning \api{Command} without a
 \code{Command[Literal[...]]} return annotation. It executes correctly and draws
