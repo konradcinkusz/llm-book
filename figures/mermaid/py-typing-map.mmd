@@ -1,0 +1,25 @@
+graph TB
+  T["Type hints are NOT enforced at run time.<br/>Nothing checks them. mypy is a linter."]
+
+  T --> G1["Where that is fine:<br/>your own function signatures,<br/>caught by mypy in CI"]
+  T --> G2["Where it is NOT fine:<br/>data crossing a boundary —<br/>an HTTP body, a model's output,<br/>a config file"]
+
+  G2 --> P["Pydantic fills the gap:<br/>validation at run time,<br/>plus a JSON Schema"]
+
+  P --> U1["tool argument schemas<br/><i>Chapter 6</i>"]
+  P --> U2["structured output<br/><i>Chapter 6</i>"]
+  P --> U3["settings and config<br/><i>this chapter</i>"]
+  P --> U4["API request and response<br/><i>Chapter 13</i>"]
+
+  N["TypedDict is the exception: LangGraph<br/>state uses it because state is a plain<br/>dict the runtime merges, not an object<br/>it constructs. Chapter 8."]
+
+  P -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef warn fill:#FBE9E9,stroke:#9B2C2C
+  classDef good fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class T,G1,U1,U2,U3,U4 n
+  class G2 warn
+  class P good
+  class N note

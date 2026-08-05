@@ -1,0 +1,26 @@
+graph TB
+  subgraph before["BEFORE 1.0 — provider-shaped"]
+    P1["provider A response<br/>content: str"] --> IF["if provider == 'a':<br/>  ...parse this way<br/>elif provider == 'b':<br/>  ...parse that way"]
+    P2["provider B response<br/>content: list of dicts"] --> IF
+    IF --> APP1["your application"]
+  end
+
+  subgraph after["1.0 — normalised"]
+    Q1["provider A"] --> CB["message.content_blocks"]
+    Q2["provider B"] --> CB
+    CB --> T["type: text"]
+    CB --> RE["type: reasoning"]
+    CB --> CI["type: citation"]
+    CB --> TC["type: tool_call"]
+    T --> APP2["your application —<br/>one code path"]
+    RE --> APP2
+    CI --> APP2
+    TC --> APP2
+  end
+
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C
+  classDef good fill:#E8F4F0,stroke:#0E7C7B
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  class P1,P2,Q1,Q2 n
+  class IF bad
+  class CB,T,RE,CI,TC,APP2 good

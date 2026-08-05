@@ -1,0 +1,29 @@
+graph TB
+  subgraph ci["RUNS ON EVERY COMMIT — no model calls, ever"]
+    T1["tool unit tests<br/><i>plain functions</i>"]
+    T2["node unit tests<br/><i>state in, dict out</i>"]
+    T3["reducer tests<br/><i>the cheapest test there is</i>"]
+    T4["graph flow tests<br/><i>scripted fake model</i>"]
+    T5["evaluation set<br/><i>fake or recorded</i>"]
+  end
+
+  subgraph live["MARKED, EXCLUDED, RUN DELIBERATELY"]
+    L1["a handful of real-provider tests"]
+    L2["the judged evaluation run"]
+  end
+
+  ci --> G["merge gate"]
+  live -.->|"nightly, or before a release"| G
+
+  N["The rule: green means something.<br/>A suite that needs a provider is a<br/>suite people learn to ignore when<br/>it is red for reasons unrelated<br/>to the change."]
+
+  ci -.- N
+
+  classDef fast fill:#E8F4F0,stroke:#0E7C7B
+  classDef slow fill:#FDF3E0,stroke:#B26A00
+  classDef gate fill:#E8F0F5,stroke:#1F4E79,stroke-width:2px
+  classDef note fill:#F4F6F8,stroke:#1F4E79,color:#5A5A5A
+  class T1,T2,T3,T4,T5 fast
+  class L1,L2 slow
+  class G gate
+  class N note

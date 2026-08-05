@@ -1,0 +1,14 @@
+graph LR
+  U["user: 'I was charged twice<br/>and the app crashes'"] --> B["billing agent"]
+  B -->|"'this looks technical'"| T["technical agent"]
+  T -->|"'this looks like billing'"| B
+
+  N["Neither is wrong. Each correctly<br/>identifies the OTHER half of the<br/>question as outside its remit.<br/><br/>Nothing bounds this but<br/>recursion_limit — and every hop<br/>is a billed model call."]:::warn
+
+  T -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C,stroke-width:2px
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class U n
+  class B,T bad

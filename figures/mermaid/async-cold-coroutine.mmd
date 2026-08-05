@@ -1,0 +1,22 @@
+graph TD
+  subgraph cold["A coroutine is COLD"]
+    C1["coro = fetch(url)"] --> C2["nothing has happened.<br/>No socket, no side effect,<br/>not scheduled."]
+    C2 --> C3["await coro"]
+    C3 --> C4["NOW it runs —<br/>and the caller waits"]
+  end
+
+  subgraph warm["A task is SCHEDULED"]
+    T1["t = create_task(fetch(url))"] --> T2["handed to the loop.<br/>Still has not run:<br/>the body waits for the<br/>next loop tick."]
+    T2 --> T3["current coroutine<br/>hits any await"]
+    T3 --> T4["loop runs the task body"]
+    T4 --> T5["await t<br/>collects the result"]
+  end
+
+  subgraph net["The consequence"]
+    N1["for u in urls:<br/>&nbsp;&nbsp;&nbsp;&nbsp;await fetch(u)"] --> N2["a QUEUE, not<br/>concurrency"]
+  end
+
+  classDef d fill:#F4F6F8,stroke:#1F4E79
+  classDef warn fill:#FDF3E0,stroke:#B26A00
+  class C1,C2,C3,C4,T1,T2,T3,T4,T5 d
+  class N1,N2 warn

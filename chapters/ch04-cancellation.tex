@@ -1,0 +1,315 @@
+\chapter{Cancellation, Timeouts and Resilience}
+\label{ch:cancellation}
+
+\begin{quote}\itshape
+Cancellation in Python is an exception injected into your code, not a flag you
+remember to check.
+\end{quote}
+
+\noindent
+This is the chapter about everything that happens when the happy path does not. A
+client disconnects mid-stream. A provider takes forty seconds instead of two. A
+task raises and nobody is listening. A shutdown signal arrives with nine hundred
+conversations in flight.
+
+Each has a correct Python answer, each has a plausible-looking wrong one, and the
+wrong ones are what you get from reading the standard library documentation
+quickly. Chapter~\ref{ch:asyncio} is assumed throughout.
+
+% ============================================================
+\section{How cancellation actually works}
+\label{sec:cancellation}
+\index{CancelledError@\texttt{CancelledError}}
+\index{cancellation}
+\index{asyncio!cancel}
+
+\mermaidfig{async-cancellation}{%
+  The lifecycle, and what swallowing the exception does to it.}{%
+  Cancellation propagating through a task.}
+
+Calling \code{task.cancel()} does not stop the task. It arranges for
+\code{CancelledError} to be \emph{raised inside it} at its next \code{await}. A
+task that never awaits again is never cancelled.
+
+\begin{python}[caption={The only correct shape}, label={lst:cancel-shape}]
+try:
+    await long_running()
+except asyncio.CancelledError:
+    await cleanup()
+    raise                    # ALWAYS. Not optional.
+\end{python}
+
+\begin{warning}
+The \code{raise} is the contract. Swallowing \code{CancelledError} tells the
+caller the work completed successfully --- so a \code{TaskGroup} thinks its child
+finished, a shutdown drain thinks it has drained, and your service waits out its
+grace period and gets SIGKILLed with work in flight
+(Chapter~\ref{ch:serving}).
+
+The commonest way to do this by accident is not catching it deliberately. It is
+\code{except Exception:} --- and in older code, bare \code{except:}. Since
+Python~3.8 \code{CancelledError} inherits from \code{BaseException} rather than
+\code{Exception}, so \code{except Exception} no longer catches it; bare
+\code{except} still does. Chapter~\ref{ch:python} listed that as a style item.
+It is not one.
+\end{warning}
+
+\begin{dotnetbox}
+This is the largest difference from .NET in this book after the cold coroutine.
+\code{CancellationToken} is \emph{cooperative polling}: you check
+\code{IsCancellationRequested}, or pass the token down and let something else
+check. Python \emph{injects an exception}, so cancellation arrives whether or not
+you were expecting it, at a place you did not choose.
+
+The practical consequences run opposite ways. In C\# the risk is forgetting to
+check the token, so cancellation is ignored. In Python the risk is catching too
+broadly, so cancellation is silently consumed --- and the symptom is not a
+request that runs too long, it is a process that will not exit.
+\end{dotnetbox}
+
+\subsection{Shielding}
+\label{sec:shield}
+\index{asyncio!shield}
+\index{cancellation!shielding}
+
+Occasionally a section genuinely must finish --- committing a transaction,
+writing a checkpoint. \code{asyncio.shield} protects it:
+
+\begin{console}
+shield: ['runner cancelled', 'critical finished']
+\end{console}
+
+The caller was cancelled immediately; the shielded coroutine ran to completion
+afterwards. That is the point and also the danger --- shielded work outlives its
+caller, which is exactly the orphaning that Chapter~\ref{ch:asyncio} warned about
+under \code{gather}, here on purpose.
+
+\begin{warning}
+Shield the smallest possible thing, and only when the alternative is corruption
+rather than waste. Shielding a whole request handler produces a service that
+appears to shut down while work continues invisibly.
+\end{warning}
+
+% ============================================================
+\section{Timeouts, at three levels}
+\label{sec:timeouts}
+\index{timeout}
+\index{asyncio!timeout}
+\index{timeout!levels}
+
+\begin{python}[caption={The modern form}, label={lst:timeout}]
+async with asyncio.timeout(30):
+    await call_model(prompt)
+\end{python}
+
+\code{asyncio.timeout} is a context manager and composes; \code{wait\_for} wraps
+a single awaitable and is the older form. Both work by cancelling, which is why
+\S\ref{sec:cancellation} comes first: a timeout on code that swallows
+\code{CancelledError} does nothing at all.
+
+\mermaidfig{async-timeout-levels}{%
+  Three scopes, each larger than the one inside it.}{%
+  The three timeout levels in an agent.}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Level} & \textbf{Bounds} & \textbf{Without it} \\
+\midrule
+Model call & One provider request & A wedged connection consumes the whole
+  budget \\[3pt]
+Node & One node attempt & A retrying node loops inside its own budget \\[3pt]
+Run & The whole request & A well-behaved agent loops forever in short steps \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+Chapter~\ref{ch:persistence} found that LangGraph's node-level \code{timeout=}
+works only on \emph{async} nodes, and says so rather than silently doing nothing.
+That is the same mechanism as this chapter: a synchronous function never reaches
+an \code{await}, so there is no point at which the cancellation could be
+delivered. It is not a framework limitation --- it is arithmetic.
+\end{warning}
+
+% ============================================================
+\section{Context propagation}
+\label{sec:contextvars}
+\index{contextvars@\texttt{contextvars}}
+\index{.NET!AsyncLocal}
+
+A request id set at the edge should be visible in every log line the request
+produces, without being threaded through forty function signatures.
+\code{contextvars} is the mechanism, and its behaviour across a task boundary is
+worth knowing precisely:
+
+\begin{console}
+contextvar via await      : req-42
+contextvar via create_task: req-42       <- copied INTO the task
+after task mutated it     : req-42       <- the change did NOT leak back
+\end{console}
+
+Each task gets a \emph{copy} of the context at creation. Values set before the
+task starts are visible inside it; values set inside it are invisible outside.
+That is almost always what you want --- concurrent requests cannot corrupt each
+other's context --- and it is occasionally surprising when you expect a task to
+report something back by setting a variable.
+
+\begin{dotnetbox}
+This is \code{AsyncLocal<T>}, with the same copy-on-branch semantics and the same
+purpose: correlation ids, tenant, tracing spans. If you have used
+\code{AsyncLocal} for request context you already have the model.
+\end{dotnetbox}
+
+\begin{note}
+This is how tracing works. Chapter~\ref{ch:observability}'s tracing backend
+propagates its span context this way, which is why spans nest correctly across
+\code{create\_task} without your passing anything. It is also why a span started
+inside a task does not appear as a sibling of one started outside it.
+\end{note}
+
+% ============================================================
+\section{The antipattern catalogue}
+\label{sec:antipatterns}
+\index{troubleshooting!async antipatterns}
+\index{cancellation!swallowed}
+\index{asyncio!fire and forget}
+
+Every one of these has cost somebody a production incident.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}XXX@{}}
+\toprule
+\textbf{Antipattern} & \textbf{Symptom} & \textbf{Fix} \\
+\midrule
+Blocking call in a coroutine & Every unrelated request slows.
+  Chapter~\ref{ch:serving} measured 44\% of throughput & Async library, or
+  \code{to\_thread} \\[3pt]
+Swallowed \code{CancelledError} & The service will not shut down & Re-raise \\[3pt]
+Fire-and-forget without a reference & The task vanishes mid-flight, collected &
+  Hold it in a set, or use \code{TaskGroup} \\[3pt]
+Unhandled exception in a task & Silence, then
+  \code{Task exception was never retrieved} at GC & \code{TaskGroup} \\[3pt]
+Unbounded \code{gather} & 429s, then memory & \code{Semaphore} \\[3pt]
+Unbounded queue, slow consumer & Memory grows until the pod dies &
+  \code{maxsize} \\[3pt]
+Abandoned async generator & Connections leak & \code{aclosing} \\[3pt]
+Sync driver in an async path & The whole process stalls & The async driver \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+The fire-and-forget one deserves emphasis because it looks harmless.
+\code{asyncio.create\_task(f())} without keeping the returned task means the only
+reference is the loop's weak one --- so the task can be garbage-collected while
+still running, and it disappears with no error. If you must start background
+work, keep the reference.
+\end{warning}
+
+% ============================================================
+\section{Finding one in a running process}
+\label{sec:debugging-async}
+\index{debugging!async}
+\index{asyncio!all\_tasks}
+\index{asyncio!debug mode}
+
+\begin{python}[caption={Ask the loop to complain}, label={lst:debug-mode}]
+asyncio.run(main(), debug=True)      # or PYTHONASYNCIODEBUG=1
+\end{python}
+
+Debug mode logs any callback that occupies the loop for more than 100\,ms ---
+exactly the blocking call measured in Chapter~\ref{ch:asyncio}. It is too noisy
+for production, and it is the fastest way to find an offender in staging.
+
+Three more approaches worth knowing:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \code{loop.slow\_callback\_duration} tunes that threshold.
+\item A watchdog task that sleeps 100\,ms in a loop and logs when it wakes late
+      turns loop starvation into a metric you can alert on.
+\item \code{asyncio.all\_tasks()} dumped on a signal shows what is actually in
+      flight when a service is wedged.
+\end{itemize}
+
+\begin{note}
+The watchdog is worth the ten lines. Blocking-call latency shows up on
+\emph{unrelated} requests, so it looks like a general slowdown and gets
+misdiagnosed as capacity. A metric that says ``the loop was starved for 400\,ms''
+points straight at the cause.
+\end{note}
+
+% ============================================================
+\section{Testing async code}
+\label{sec:testing-async}
+\index{testing!async}
+\index{pytest-asyncio@\texttt{pytest-asyncio}}
+
+\code{pytest-asyncio} with \code{asyncio\_mode = "auto"} means an
+\code{async def} test just runs. \code{anyio} is the alternative and also
+supports trio.
+
+\begin{warning}
+If that mode setting is lost, an \code{async def} test is never awaited and
+pytest reports it as \textbf{passed}. A whole suite can go green while testing
+nothing. Chapter~\ref{ch:python}'s stage 00 has a test whose only job is to
+detect this, and it is not paranoia --- it is a silent-failure mode with no
+symptom.
+\end{warning}
+
+Two more rules that make async tests trustworthy: put a timeout on every test, so
+a hung await fails in seconds rather than blocking CI for six hours; and control
+time rather than sleeping through it, so a test of a 30-second timeout takes
+milliseconds.
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch4-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Cancellation is an exception injected at the next \code{await}. Clean up,
+      then \textbf{re-raise}.
+\item Bare \code{except} catches \code{CancelledError}. \code{except Exception}
+      does not, since 3.8.
+\item \code{shield} protects work from cancellation and thereby orphans it. Use
+      it on the smallest possible scope.
+\item Timeouts work by cancelling, so a swallowed cancellation defeats them.
+\item Three timeout levels, each larger than the one inside it.
+\item \code{contextvars} are copied into a task; changes inside do not leak out.
+      This is how tracing nests correctly.
+\item The antipattern table is a checklist for review. The fire-and-forget one
+      loses work with no error at all.
+\item Turn loop starvation into a metric, because its symptom appears on
+      innocent requests.
+\item A lost \code{asyncio\_mode} makes async tests pass without running.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Write a task that catches \code{CancelledError} and does not re-raise.
+Put it in a \code{TaskGroup} and cancel it. Then try to shut the loop down.
+
+\textbf{2.} Reproduce the contextvar result: set a variable, read it inside a
+task, mutate it inside the task, read it outside again. Predict all three first.
+
+\textbf{3.} Start a task without keeping a reference, force a garbage collection,
+and confirm it can disappear.
+
+\textbf{4.} Write the loop-starvation watchdog. Ten lines. Then add a
+\code{time.sleep(0.5)} somewhere and watch it fire.
+
+\textbf{5.} Delete \code{asyncio\_mode = "auto"} from the mini-project and run
+the suite. Note that it stays green.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 01, completed.} Chapter~\ref{ch:asyncio} built the capped fan-out
+and the bounded queue; this chapter adds graceful shutdown --- a signal arrives,
+in-flight work drains, nothing is lost.
+
+The contract's most consequential line: a cancelled task's cleanup must run
+\emph{and} the \code{CancelledError} must be re-raised, asserted separately.
+Testing only that cleanup ran passes for the implementation that swallows it,
+which is the bug.
+\end{projectbox}

@@ -1,0 +1,734 @@
+\chapter{The Landscape}
+\label{ch:landscape}
+
+\begin{quote}\itshape
+Most of what you will find when you search for this is describing a library that
+no longer exists.
+\end{quote}
+
+\noindent
+This chapter is about knowing which decade you are in. LangChain 1.0 was
+published on 17~October~2025 and did not merely add features --- it deleted the
+three abstractions that every tutorial written before it is built on, and it
+inverted the relationship between the two libraries whose names are on the cover
+of this book. Getting that inversion the right way round is the single
+highest-value thing here, because everything downstream follows from it.
+
+The chapter makes one argument and then proves it rather than asserting it:
+\textbf{\pkg{langchain} and \pkg{langgraph} are not alternatives.}
+\pkg{langgraph} is the execution runtime. \pkg{langchain} 1.x is a thin,
+opinionated layer over it. \api{create\_agent} returns a compiled LangGraph
+graph, which is why every agent you build with the convenience API silently
+inherits checkpointing, streaming and interrupts --- capabilities nobody asked
+for and nobody wired up.
+
+Everything in this chapter was checked against the packages installed at the
+pinned versions rather than against documentation. Where the two disagreed ---
+and they did, on a date and on a deprecation --- the package won.
+
+% ============================================================
+\section{The timeline, and why it matters more than usual}
+\label{sec:timeline}
+\index{LangChain!timeline}
+\index{LangGraph!timeline}
+\index{release!1.0 date}
+\index{versioning!the 1.0 line}
+
+Ecosystem history is normally trivia. Here it is operational, because the
+architecture changed underneath a very large body of published material that was
+never withdrawn.
+
+\mermaidfig{lc-timeline}{%
+  The timeline. The dates are taken from PyPI upload times rather than from
+  announcements, which is why 1.0 appears on the 17th rather than the 22nd.}{%
+  Ecosystem timeline from 2022 to the present.}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Date} & \textbf{What happened} \\
+\midrule
+25 Oct 2022 & \pkg{langchain} 0.0.1 published \\
+2023--2024 & The era of \api{LLMChain}, \api{AgentExecutor},
+             \api{initialize\_agent} and LCEL \\
+9 Jan 2024 & \pkg{langgraph} appears as a separate distribution \\
+May 2025 & LangGraph Platform reaches general availability \\
+\textbf{17 Oct 2025} & \textbf{\pkg{langchain} 1.0.0, \pkg{langgraph} 1.0.0 and
+             \pkg{langchain-classic} 1.0.0, all published the same day} \\
+2026 & The 1.x line matures \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+You will see 22~October~2025 quoted for the 1.0 release, including in a good deal
+of otherwise careful writing. The packages went to PyPI on the 17th; the public
+announcement followed the next week. Both dates are real and they describe
+different events. This book uses upload dates throughout, because that is the
+date on which the thing you can install changed.
+\end{note}
+
+The coordination is the interesting part. Three distributions reaching 1.0.0
+within the same upload window is not a coincidence and not a version bump. It is
+one architectural decision shipped as three packages: the runtime declared
+stable, the convenience layer rebuilt on top of it, and everything that no longer
+fitted moved sideways into a fourth. Section~\ref{sec:removed} is about that
+third package.
+
+\subsection{The 2.0 commitment}
+\label{sec:two-oh}
+\index{versioning!2.0 commitment}
+\index{semantic versioning}
+
+The 1.0 line carries a public commitment to no breaking changes before 2.0. That
+is worth exactly as much as any such commitment, which is to say: it is a
+statement of intent that has so far been kept, and it is visible in the
+dependency metadata rather than only in a blog post. \pkg{langchain} at the
+pinned version declares its dependency on the core package as
+\code{langchain-core>=1.4.9,<2.0.0} --- an upper bound at the next major, which
+is the shape a project uses when it means it.
+
+This matters for a practical reason. Before 1.0 the correct posture towards this
+ecosystem was defensive: pin everything, upgrade reluctantly, expect breakage.
+After 1.0 that posture is merely prudent rather than mandatory, and the
+conceptual material is finally worth learning properly instead of provisionally.
+
+% ============================================================
+\section{What 1.0 removed}
+\label{sec:removed}
+\index{AgentExecutor@\texttt{AgentExecutor}}
+\index{LLMChain@\texttt{LLMChain}}
+\index{initialize\_agent@\texttt{initialize\_agent}}
+\index{packages!classic}
+\index{migration!removed abstractions}
+
+Three names dominate pre-1.0 material:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \api{AgentExecutor}
+\item \api{initialize\_agent}
+\item \api{LLMChain}
+\end{itemize}
+
+\medskip
+\noindent
+All three are gone from \pkg{langchain}. Not deprecated --- gone.
+
+It is worth seeing exactly how they are gone, because the two mechanisms differ
+and the difference is what you will actually hit:
+
+\begin{python}[caption={What is left of the pre-1.0 API in \pkg{langchain} 1.3.14}, label={lst:removed}]
+>>> import langchain.agents
+>>> hasattr(langchain.agents, "AgentExecutor")
+False
+>>> hasattr(langchain.agents, "initialize_agent")
+False
+
+>>> import langchain.chains
+ModuleNotFoundError: No module named 'langchain.chains'
+>>> import langchain.memory
+ModuleNotFoundError: No module named 'langchain.memory'
+>>> import langchain.retrievers
+ModuleNotFoundError: No module named 'langchain.retrievers'
+>>> import langchain.hub
+ModuleNotFoundError: No module named 'langchain.hub'
+\end{python}
+
+The module \code{langchain.agents} still exists and has simply lost two members.
+The modules \code{langchain.chains}, \code{langchain.memory},
+\code{langchain.retrievers} and \code{langchain.hub} do not exist at all.
+
+\begin{warning}
+Note what the error message does \emph{not} say. \code{ModuleNotFoundError: No
+module named 'langchain.chains'} is the ordinary Python error for a typo. It
+does not mention \pkg{langchain-classic}, it does not mention 1.0, and it gives
+a reader who inherited a 0.x codebase no indication that the code was ever
+correct. The first hour of most migrations is spent discovering by search what
+one line of error text could have said.
+\end{warning}
+
+\subsection{Where it all went}
+\label{sec:classic}
+\index{packages!classic}
+\index{migration!where things went}
+
+Nothing was deleted from the world; it was moved. \pkg{langchain-classic}
+carries the entire retired surface, and carries it working:
+
+\begin{python}[caption={The retired API, alive and importable in \pkg{langchain-classic} 1.0.8}, label={lst:classic}]
+>>> import langchain_classic.agents as agents
+>>> import langchain_classic.chains as chains
+>>> hasattr(agents, "AgentExecutor"), hasattr(agents, "initialize_agent")
+(True, True)
+>>> hasattr(chains, "LLMChain"), hasattr(chains, "RetrievalQA")
+(True, True)
+\end{python}
+
+That makes \pkg{langchain-classic} the migration bridge, and it is the reason a
+0.x project can be made to run under 1.x in an afternoon: install the classic
+package, rewrite imports, get green, and only then start replacing things. The
+migration path is Appendix~\ref{app:packages}'s subject.
+
+It is in maintenance mode. Treat it as a bridge with a deck you should not park
+on.
+
+\subsection{The scale of the slimming, in one number}
+\label{sec:slimming}
+\index{packages!submodule count}
+\index{ModuleNotFoundError@\texttt{ModuleNotFoundError}}
+
+The clearest measure of what 1.0 did is a submodule count. Both numbers below
+come from walking the installed packages:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrX@{}}
+\toprule
+\textbf{Distribution} & \textbf{Submodules} & \textbf{Contains} \\
+\midrule
+\pkg{langchain} & 6 & \code{agents}, \code{chat\_models}, \code{embeddings},
+  \code{messages}, \code{rate\_limiters}, \code{tools} \\[4pt]
+\pkg{langchain-classic} & 43 & everything above plus chains, memory,
+  retrievers, vector stores, document loaders, output parsers, the hub, and the
+  evaluation harness \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Six against forty-three. \pkg{langchain} 1.x is not a refactor of the old
+package; it is a different, much smaller thing that kept the name.
+
+\begin{note}
+The six are worth reading as a statement of scope. What survived is: how you
+build an agent, how you talk to a model, how you represent a message, how you
+define a tool, and how you avoid being rate-limited. Everything that was a
+\emph{pattern} rather than a \emph{primitive} was moved out.
+\end{note}
+
+\subsection{The fourth name, and a correction}
+\label{sec:react-agent}
+\index{create\_react\_agent@\texttt{create\_react\_agent}}
+\index{deprecation!create\_react\_agent}
+\index{deprecation!warning category}
+
+Material of a certain vintage --- and a certain amount of material written since
+--- also names \code{langgraph.prebuilt.create\_react\_agent}. It is commonly
+listed alongside the three above as removed. It is not.
+
+\begin{python}[caption={\api{create\_react\_agent} is deprecated, not removed}, label={lst:react-agent}]
+>>> from langgraph.prebuilt import create_react_agent   # imports fine
+>>> print(create_react_agent.__doc__.split("Args:")[0].rstrip())
+Creates an agent graph that calls tools in a loop until a stopping condition
+is met.
+
+    !!! warning
+
+        This function is deprecated in favor of
+        [`create_agent`][langchain.agents.create_agent] from the `langchain`
+        package, which provides an equivalent agent factory with a flexible
+        middleware system. For migration guidance, see
+        [Migrating from LangGraph v0](https://docs.langchain.com/...).
+\end{python}
+
+\noindent
+The output is transcribed as printed, with two cosmetic exceptions: the first
+line is wrapped to fit this page, and the documentation URL at the end is
+elided. The \code{!!!} and the bracket syntax are real --- the docstring is
+written in the markup the documentation site renders, which is worth knowing the
+next time you read one of these at a terminal and wonder what happened.
+
+It carries a deprecation decorator, and the warning category it is raised
+against is named:
+
+\begin{center}
+\api{LangGraphDeprecatedSinceV10}
+\end{center}
+
+\noindent
+It still works. So a 0.x codebase using it will keep running, which is a
+kindness, and will keep running silently past the point where the replacement is
+better, which is not.
+
+The replacement is \api{create\_agent}, and the reason to move is the one the
+docstring gives: middleware. That is Chapter~\ref{ch:agents}.
+
+\begin{note}
+This is a small thing, but it is the first instance of a pattern that recurs
+through the whole book, so it is worth naming. The brief for this chapter said
+\api{create\_react\_agent} was removed. Reading the installed package said it was
+deprecated. The package was right. Nothing in this book claims an API detail that
+has not been checked this way, and where something could not be checked, it says
+so in a box.
+\end{note}
+
+% ============================================================
+\section{The package map}
+\label{sec:package-map}
+\index{packages!map}
+\index{packages!core}
+\index{packages!langgraph}
+\index{packages!anthropic}
+\index{packages!langsmith}
+
+There are four kinds of distribution in this ecosystem and it is worth being able
+to name which kind you are looking at.
+
+\mermaidfig{lc-package-map}{%
+  The dependency graph at the pinned versions, drawn with the arrows pointing
+  the way the dependencies actually point. Note that \pkg{langchain} depends on
+  \pkg{langgraph} and nothing depends on \pkg{langchain}.}{%
+  Package dependency map at the pinned versions.}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Kind} & \textbf{Distributions} \\
+\midrule
+Contracts & \pkg{langchain-core} --- the base classes everything else agrees on \\[4pt]
+Runtime & \pkg{langgraph}, plus \pkg{langgraph-checkpoint},
+  \pkg{langgraph-prebuilt} and \pkg{langgraph-sdk}, which it pulls in itself \\[4pt]
+Convenience & \pkg{langchain} --- the agent layer \\[4pt]
+Chosen per project & one provider package per model vendor; one checkpointer
+  package per storage backend; \pkg{langchain-classic} if you are migrating;
+  \pkg{langsmith} if you are tracing \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The dependency direction is the whole argument}
+\label{sec:dependency-direction}
+\index{inversion}
+\index{packages!dependency direction}
+
+You do not have to take the layering on trust. It is declared in the packaging
+metadata, and it points one way:
+
+\begin{python}[caption={The declared dependencies, read from the installed distributions}, label={lst:deps}]
+>>> from importlib.metadata import requires
+>>> [r for r in requires("langchain") if "extra" not in r]
+['langchain-core<2.0.0,>=1.4.9', 'langgraph<1.3.0,>=1.2.5', 'pydantic<3.0.0,>=2.7.4']
+
+>>> [r for r in requires("langgraph") if "extra" not in r]
+['langchain-core<2,>=1.4.7', 'langgraph-checkpoint<5.0.0,>=4.1.0',
+ 'langgraph-prebuilt<1.2.0,>=1.1.0', 'langgraph-sdk<0.5.0,>=0.4.2',
+ 'pydantic>=2.7.4', 'xxhash>=3.5.0']
+\end{python}
+
+\pkg{langchain} requires \pkg{langgraph}. \pkg{langgraph} does not require
+\pkg{langchain} and never mentions it. Both require \pkg{langchain-core}.
+
+That is the inversion, stated by the build system rather than by a diagram.
+Install \pkg{langgraph} alone and you have a complete, working orchestration
+runtime with no agent convenience layer at all. Install \pkg{langchain} and you
+get the runtime whether you wanted it or not, because it is not optional --- it
+is where the agent runs.
+
+\begin{warning}
+The four \pkg{langgraph-*} packages are on \emph{separate version lines}. At the
+versions this book pins, \pkg{langgraph} is 1.2.10 while
+\pkg{langgraph-checkpoint} is 4.1.1, \pkg{langgraph-prebuilt} is 1.1.0 and
+\pkg{langgraph-sdk} is 0.4.2. A version number quoted for one of them tells you
+almost nothing about the others, and ``we are on LangGraph 1.2'' is not a
+complete description of an environment. Pin the lot, in a lockfile.
+\end{warning}
+
+\subsection{How fast this moves}
+\label{sec:cadence}
+\index{release cadence}
+\index{packages!deepagents}
+
+One number, because it sets the expectation for everything that follows. Counting
+stable releases published to PyPI between January~2026 and the end of July:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrX@{}}
+\toprule
+\textbf{Distribution} & \textbf{Releases} & \textbf{Roughly} \\
+\midrule
+\pkg{langchain-core} & 49 & more than one a week \\
+\pkg{langchain} & 36 & about one a week \\
+\pkg{langgraph} & 27 & about one a fortnight \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+None of those was a breaking change, and that is the point --- the commitment in
+\S\ref{sec:two-oh} is what makes a weekly cadence survivable rather than
+exhausting. But it does mean that a book, or a blog post, or a tutorial, is a
+photograph. This one pins its versions on the title page and checks them against
+PyPI on every build, which does not stop it going stale; it only stops it going
+stale invisibly.
+
+\begin{note}
+An honest illustration, and one the author did not go looking for. While this
+chapter was being written, \pkg{deepagents} --- discussed in
+Chapter~\ref{ch:ecosystem} --- published a release that made the version pinned
+in this book's preamble one behind, on the same day. It has had over fifty
+releases this year and is still pre-1.0. Not everything in this ecosystem carries
+the 1.0 commitment, and the packages that do not are the ones to hold at arm's
+length.
+\end{note}
+
+% ============================================================
+\section{The inversion, demonstrated}
+\label{sec:inversion}
+\index{create\_agent@\texttt{create\_agent}}
+\index{CompiledStateGraph@\texttt{CompiledStateGraph}}
+\index{Pregel@\texttt{Pregel}}
+
+Dependency metadata establishes that \pkg{langchain} sits on \pkg{langgraph}. It
+does not establish the stronger and more useful claim: that an agent \emph{is} a
+graph, at runtime, in your process.
+
+That one is worth proving directly, and it can be proved without an API key.
+
+\mermaidfig{lc-lg-layering}{%
+  The inversion, drawn. \api{create\_agent} is not an alternative to LangGraph;
+  it returns a compiled LangGraph graph, which is why an agent gets
+  checkpointing, streaming and interrupts without asking for them.}{%
+  Layer cake: application, convenience layer, runtime, contracts.}
+
+\subsection{What \texorpdfstring{\api{create\_agent}}{create\_agent} returns}
+\label{sec:what-create-agent-returns}
+\index{create\_agent@\texttt{create\_agent}!return type}
+\index{GenericFakeChatModel@\texttt{GenericFakeChatModel}}
+
+Start with the signature. The return annotation is not a wrapper type and not an
+opaque handle:
+
+\begin{python}[caption={The declared return type of \api{create\_agent}}, label={lst:sig}]
+>>> import inspect
+>>> from langchain.agents import create_agent
+>>> inspect.signature(create_agent).return_annotation
+CompiledStateGraph[AgentState[ResponseT], ContextT, InputAgentState,
+                   OutputAgentState[ResponseT]]
+\end{python}
+
+Then confirm it at runtime. A fake chat model is enough --- this listing costs
+nothing and calls nobody:
+
+\begin{python}[caption={An agent is a graph. Run this; it needs no provider.}, label={lst:inversion}]
+from langchain.agents import create_agent
+from langchain.tools import tool
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
+
+
+@tool
+def get_order(order_id: str) -> str:
+    """Look up an order by its identifier."""
+    return "shipped"
+
+
+fake = GenericFakeChatModel(messages=iter([AIMessage(content="ok")]))
+agent = create_agent(model=fake, tools=[get_order])
+
+print(type(agent).__name__)
+print(type(agent).__module__)
+print([c.__name__ for c in type(agent).__mro__][:5])
+print(list(agent.get_graph().nodes))
+\end{python}
+
+\begin{console}
+CompiledStateGraph
+langgraph.graph.state
+['CompiledStateGraph', 'Pregel', 'PregelProtocol', 'Runnable', 'ABC']
+['__start__', 'model', 'tools', '__end__']
+\end{console}
+
+Four lines of output, and each one is load-bearing.
+
+\textbf{The type is \api{CompiledStateGraph}}, defined in
+\code{langgraph.graph.state}. Not a LangChain type that wraps a graph --- the
+LangGraph type itself. \api{create\_agent} is a graph builder with an opinion.
+
+\textbf{The method resolution order runs through \api{Pregel}.} Pregel is the
+bulk-synchronous parallel execution model that Chapter~\ref{ch:stategraph}
+covers, and it is the thing that makes supersteps, checkpoints and resumption
+possible. An agent built with the convenience API is executed by exactly the same
+machinery as a graph you assemble by hand.
+
+\textbf{The MRO also runs through \api{Runnable}}, which is
+Chapter~\ref{ch:models}'s subject. So an agent has \api{invoke}, \api{ainvoke},
+\api{stream}, \api{astream} and \api{astream\_events} for the same reason every
+other component does: it is a \api{Runnable}, and there is only one such
+interface in the ecosystem.
+
+\textbf{The graph has four nodes}, and they are the agent loop:
+\code{\_\_start\_\_}, \code{model}, \code{tools}, \code{\_\_end\_\_}. There is no
+hidden machinery. The loop everyone describes in prose is a two-node cycle you
+can enumerate.
+
+\subsection{Printing the graph}
+\label{sec:printing-graph}
+\index{workflow!visualisation}
+\index{get\_graph@\texttt{get\_graph}}
+
+Because it is a real graph, it draws itself:
+
+\begin{python}[caption={The agent loop, rendered by the agent}, label={lst:draw-mermaid}]
+print(agent.get_graph().draw_mermaid())
+\end{python}
+
+\begin{console}
+graph TD;
+        __start__([__start__]):::first
+        model(model)
+        tools(tools)
+        __end__([__end__]):::last
+        __start__ --> model;
+        model -.-> __end__;
+        model -.-> tools;
+        tools -.-> model;
+\end{console}
+
+That is the entire agent loop, emitted by the object rather than drawn by an
+author. Start goes to the model. From the model there are two dashed --- that is,
+conditional --- edges: one to the end, taken when the model returns without tool
+calls, and one to the tools node. Tools goes back to the model unconditionally.
+
+Get into the habit now. Printing the graph is the fastest way to answer ``what
+did that helper actually build'', and by Chapter~\ref{ch:multi-agent} the answer
+stops being obvious.
+
+\subsection{Why this is the chapter's most useful fact}
+\label{sec:inversion-consequences}
+\index{troubleshooting!which library}
+
+Three consequences follow immediately, and each is a chapter later in the book.
+
+\textbf{Every agent can be made durable.} \api{create\_agent} takes a
+\code{checkpointer} argument, and it takes one because the thing it returns is a
+graph and graphs checkpoint. You are not adding persistence to an agent; you are
+switching on a runtime feature that was always there
+(Chapter~\ref{ch:persistence}).
+
+\textbf{Every agent can be interrupted.} Same reason. A human approval gate is
+not an agent feature, it is a graph feature (Chapter~\ref{ch:interrupts}).
+
+\textbf{Every agent composes.} A \api{CompiledStateGraph} can be a node in
+another \api{StateGraph}. So an agent --- with its full middleware stack, its
+tools and its structured output --- can be dropped into a larger graph as one
+node, and the larger graph neither knows nor cares (Chapter~\ref{ch:stategraph}).
+
+And the converse, which is the thing to take into Chapter~\ref{ch:stategraph}:
+if you ever need something \api{create\_agent} cannot express, you are not
+switching frameworks or rewriting. You are dropping one level in the same
+runtime, on the same objects.
+
+\begin{dotnetbox}
+The closest thing in .NET is the relationship between minimal APIs and the
+endpoint routing they compile down to. \code{app.MapGet(...)} is not an
+alternative to the routing middleware --- it is a terse way of registering into
+it, and anything you can express with the fluent helper you can also express by
+building the endpoint yourself. Reaching for the lower level is a normal thing to
+do at a specific point, not an escape hatch and not an admission that the helper
+failed.
+\end{dotnetbox}
+
+% ============================================================
+\section{Dating a piece of LangChain material in ten seconds}
+\label{sec:dating}
+\index{troubleshooting!stale material}
+\index{migration!dating material}
+
+This is the most immediately useful section in the chapter, and it is a lookup
+table.
+
+Search results for anything in this ecosystem are dominated by material written
+between 2023 and mid-2025. The prose rarely carries a version. The code always
+does.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{If you see} & \textbf{Then} \\
+\midrule
+\api{AgentExecutor} & Pre-1.0. The whole architecture described has moved. \\[3pt]
+\api{initialize\_agent} & Pre-1.0, and old even then --- it was on the way out
+  well before the split. \\[3pt]
+\api{LLMChain}, \code{from langchain.chains} & Pre-1.0. Now
+  \pkg{langchain-classic}, in maintenance. \\[3pt]
+\code{from langchain.memory} & Pre-1.0. Superseded by checkpointers and stores
+  (Chapter~\ref{ch:persistence}), which are a different design and not a
+  rename. \\[3pt]
+\code{from langchain.retrievers} & Pre-1.0. Retrieval is now built as a tool
+  (Chapter~\ref{ch:tools}). \\[3pt]
+\code{langgraph.prebuilt.create\_react\_agent} & Post-split but pre-\api{create\_agent}.
+  Still runs; deprecated. \\[3pt]
+\api{create\_agent}, \code{middleware=}, \api{content\_blocks} & 1.0 or later. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+Apply this to model output as well as to search results. A large amount of what
+has been written about LangChain predates October~2025, so an assistant asked for
+LangChain code will confidently produce \api{AgentExecutor} and
+\api{LLMChain} --- fluent, well-structured, and describing a library you do not
+have installed. The table above is the check, and it takes ten seconds.
+\end{warning}
+
+% ============================================================
+\section{Where this is the wrong tool}
+\label{sec:wrong-tool}
+\index{troubleshooting!framework choice}
+
+A first chapter that only sells its subject is not worth much, so here is the
+boundary, stated early and argued properly in Chapter~\ref{ch:ecosystem}.
+
+For \textbf{one or two model calls behind a clean function} --- classify this
+text, extract these fields, rewrite this paragraph --- the provider's own SDK is
+faster to write, easier to debug, and has fewer moving parts that can change
+underneath you. There is no loop, no state to persist, nothing to interrupt and
+no topology. A framework contributes a dependency tree and an abstraction to see
+through, and contributes nothing else.
+
+The framework starts earning its place when at least one of these is true:
+
+\begin{itemize}[leftmargin=1.4em]
+\item the work is a \textbf{loop} whose length you do not know in advance;
+\item it must \textbf{survive a restart}, or resume in a different process;
+\item a \textbf{human} has to approve something in the middle, possibly days
+      later;
+\item you need to \textbf{stream} intermediate state, not just final text;
+\item the control flow is a \textbf{topology} --- branches, parallelism, joins
+      --- rather than a sequence.
+\end{itemize}
+
+Those five are, not coincidentally, what Part~III is about. If none of them
+applies to what you are building, Chapter~\ref{ch:ecosystem} is where you should
+skip to, and it will tell you to use something smaller.
+
+% ============================================================
+\section{Orientation for the .NET reader}
+\label{sec:dotnet-orientation}
+\index{.NET!concept mapping}
+
+Some of what you know transfers exactly, some transfers with a caveat that will
+bite, and some does not transfer at all. Being clear about which is which is
+worth more than enthusiasm.
+
+\subsection{What transfers, and what it is worth}
+
+Most of it, and more than you would expect --- because the hard parts of this
+subject are not language features.
+
+LangGraph is a \textbf{durable workflow engine}. If you have run Durable
+Functions, Temporal, or any system built on event sourcing with replay, you
+already hold the model that Chapter~\ref{ch:persistence} teaches: state persisted
+at step boundaries, resumption from the last committed point, and the
+consequence that a step must be safe to run twice. That consequence is the single
+most-missed thing about LangGraph, and you have met it before under a different
+name.
+
+The same goes for the rest of the production half of this book. Idempotency
+keys, retry semantics, backpressure, connection pooling, graceful shutdown,
+structured logging, distributed tracing, the difference between a checkpoint and
+an audit log --- none of that is agent knowledge. It is service knowledge, and it
+transfers whole.
+
+\begin{note}
+Stated plainly, because it is easy to undersell: the scarce skill in this field
+is not knowing the LangChain API. The API is a fortnight's work and it is
+documented. The scarce skill is knowing what a system does when a dependency is
+slow, when a pod restarts mid-request, or when a component is non-deterministic
+and must nonetheless be tested. That is what a decade of backend engineering is,
+and this ecosystem is short of it.
+\end{note}
+
+\subsection{What transfers with a caveat}
+
+Three things look familiar and are not quite what you expect. Each gets a full
+treatment later; they are flagged here so you notice them when they arrive.
+
+\textbf{\code{async}/\code{await} is the same idea with different defaults.}
+A \code{Task} in .NET is usually already running. A coroutine in Python has not
+started and will not start until something awaits it or wraps it in a task. There
+is no synchronisation context and no \code{ConfigureAwait}. Cancellation is an
+exception injected at an await point rather than a token you poll. And one
+blocking call stops the entire process rather than one request.
+Chapters~\ref{ch:asyncio} and~\ref{ch:cancellation}.
+
+\textbf{Types are a linting convention, not a runtime contract.} Nothing enforces
+a type hint at runtime. What fills the gap is Pydantic, and once you see that,
+the design of everything else follows: tool schemas, structured output, state
+definitions and settings are all Pydantic or \code{TypedDict} underneath.
+Chapter~\ref{ch:python}.
+
+\textbf{Middleware is genuinely the ASP.NET Core pattern.} This one is an exact
+correspondence rather than an analogy, and Chapter~\ref{ch:agents} makes the
+mapping hook by hook. It is the place where your instincts are worth the most.
+
+\subsection{What does not transfer}
+
+The economics. In a service you have built before, a call is essentially free and
+you optimise for latency. Here a call has a per-token price, the price varies by
+an order of magnitude between models, a retry costs real money, and an agent that
+loops twenty times instead of three has produced an invoice rather than a
+warning.
+
+That changes design. It is why Chapter~\ref{ch:agents} spends time on call
+limits, why Chapter~\ref{ch:context} exists at all, and why
+Chapter~\ref{ch:multi-agent} treats a multi-agent topology as a cost decision
+before it treats it as an architecture. Cost accounting goes into the
+mini-project at its first model call, in Chapter~\ref{ch:models}, rather than
+being added at the end.
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch1-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item \pkg{langchain} depends on \pkg{langgraph}; nothing depends on
+      \pkg{langchain}. The dependency metadata says so.
+\item \api{create\_agent} returns a \api{CompiledStateGraph}, whose MRO runs
+      through \api{Pregel} and \api{Runnable}. An agent is a graph, executed by
+      the same runtime as a hand-built one.
+\item That is why checkpointing, streaming, interrupts and composition are
+      available to every agent without being requested.
+\item 1.0 removed two members of \code{langchain.agents} and four whole
+      modules --- \code{chains}, \code{memory}, \code{retrievers},
+      \code{hub}. They live on in \pkg{langchain-classic}, a migration
+      bridge in maintenance. \api{create\_react\_agent} is deprecated but
+      still present and working.
+\item Six submodules against forty-three: 1.x is a smaller thing that kept the
+      name.
+\item Date any material you find by the API it uses, including material a model
+      produces for you.
+\item For one or two model calls behind a function, use the provider SDK.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Run Listing~\ref{lst:inversion} and Listing~\ref{lst:draw-mermaid} in
+a scratch environment. Then add \code{system\_prompt} and a second tool and print
+the graph again. Does the node count change? Should it?
+
+\textbf{2.} Print the graph of an agent built with \code{checkpointer=} set to an
+\api{InMemorySaver}. Compare it against one built without. The topology is
+identical --- find, in \code{agent.get\_graph()} or on the object itself, where
+the difference actually lives.
+
+\textbf{3.} Take a LangChain tutorial from a search engine's first page of
+results. Date it using \S\ref{sec:dating} in under a minute. Then ask an
+assistant for ``a LangChain agent that calls a weather tool'' and date that
+output the same way.
+
+\textbf{4.} Install \pkg{langchain-classic} in a throwaway environment and get
+one \api{LLMChain} example from 2023 running under it. This is what the first day
+of a migration looks like, and it is more reassuring than it sounds.
+\end{exercisebox}
+
+\begin{projectbox}
+Nothing to build yet --- Ops Copilot starts in Chapter~\ref{ch:python} with stage
+00, the repository skeleton.
+
+Worth doing now, though: clone the companion repository and read
+\code{stages/00-skeleton/README.md} and \code{stages/final/README.md} together.
+The first is where you start and the second is what you are building towards, and
+the gap between them is the shape of the book.
+\end{projectbox}

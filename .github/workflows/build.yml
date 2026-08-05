@@ -1,0 +1,184 @@
+name: Build
+
+# Validates the book on every push and pull request.
+# The release workflow only runs on tags and is therefore too late to catch a
+# broken pull request; this is the one that gives contributors feedback.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PDF_NAME: LangChain-LangGraph-Async-Python
+
+jobs:
+  diagrams:
+    name: Render diagrams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Render every Mermaid source to PDF
+        run: |
+          shopt -s nullglob
+          SRC=(figures/mermaid/*.mmd)
+          if [ ${#SRC[@]} -eq 0 ]; then
+            echo "No Mermaid sources yet."
+            mkdir -p figures/diagrams
+            exit 0
+          fi
+          mkdir -p figures/diagrams
+          # mermaid-cli bundles its own Chromium; --no-sandbox is required in
+          # a container running as root.
+          printf '{"args":["--no-sandbox","--disable-dev-shm-usage"]}\n' > .puppeteer.json
+          FAILED=0
+          for f in "${SRC[@]}"; do
+            key=$(basename "$f" .mmd)
+            echo "::group::$key"
+            if ! npx -y @mermaid-js/mermaid-cli@11 \
+                 -i "$f" -o "figures/diagrams/$key.pdf" \
+                 -p .puppeteer.json -c figures/mermaid/config.json \
+                 -b transparent --pdfFit; then
+              echo "::error file=$f::Mermaid failed to render $key"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $FAILED
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diagrams
+          path: figures/diagrams
+          retention-days: 14
+          if-no-files-found: ignore
+
+  build:
+    name: Compile PDF
+    runs-on: ubuntu-latest
+    needs: diagrams
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: diagrams
+          path: figures/diagrams
+
+      - name: Compile with latexmk
+        uses: xu-cheng/latex-action@v4
+        with:
+          root_file: main.tex
+          latexmk_use_lualatex: false
+          # pdflatex is sufficient; the preamble degrades gracefully when
+          # optional font packages are missing.
+          args: -pdf -interaction=nonstopmode -halt-on-error -file-line-error
+
+      - name: Check for unresolved references
+        run: |
+          if grep -q "Reference.*undefined" main.log; then
+            echo "::error::Unresolved cross-references remain after the final pass."
+            grep "Reference.*undefined" main.log | sort -u
+            exit 1
+          fi
+          echo "No unresolved references."
+
+      - name: Rename artefact
+        run: mv main.pdf "${PDF_NAME}.pdf"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: book-pdf
+          path: ${{ env.PDF_NAME }}.pdf
+          retention-days: 14
+
+      # ---- Reporting -----------------------------------------------------
+      # Debt ledgers, surfaced on every build so they cannot quietly
+      # accumulate. Each entry is a promise to a reader that is not yet kept.
+
+      - name: Report outstanding work
+        if: always()
+        run: |
+          {
+            echo "## Book status"
+            echo ""
+            if command -v pdfinfo >/dev/null 2>&1; then
+              echo "**Pages:** $(pdfinfo *.pdf | awk '/^Pages/ {print $2}')"
+              echo ""
+            fi
+
+            echo "### Chapters not yet written"
+            echo ""
+            STUBS=$(grep -rl '\\chapterstub{' chapters appendices 2>/dev/null | sort)
+            if [ -z "$STUBS" ]; then
+              echo "_None — the draft is complete._"
+            else
+              echo "$STUBS" | sed 's/^/- `/;s/$/`/'
+              echo ""
+              echo "Outstanding: **$(echo "$STUBS" | wc -l)**"
+            fi
+            echo ""
+
+            echo "### Screenshots still needed"
+            echo ""
+            MISSING=0
+            for k in $(grep -rhoE '\\needscreenshot\{[^}]*\}' chapters appendices frontmatter 2>/dev/null \
+                       | sed -E 's/.*\{(.*)\}/\1/' | sort -u); do
+              if [ ! -f "figures/screenshots/$k.png" ]; then
+                echo "- \`$k.png\`"
+                MISSING=$((MISSING+1))
+              fi
+            done
+            [ "$MISSING" -eq 0 ] && echo "_None._"
+            echo ""
+
+            echo "### Listings not yet run against the pinned versions"
+            echo ""
+            # chapters and appendices only -- the introduction contains one of
+            # each admonition as a specimen, which is not debt.
+            VERIFY=$(grep -rc 'begin{verifybox}' chapters appendices 2>/dev/null \
+                     | awk -F: '{s+=$2} END {print s+0}')
+            echo "\`verifybox\` blocks outstanding: **$VERIFY**"
+            echo ""
+            echo "_Nothing ships to a reader with a \`verifybox\` still on it._"
+            echo ""
+
+            echo "### Diagrams"
+            echo ""
+            echo "Mermaid sources: **$(ls figures/mermaid/*.mmd 2>/dev/null | wc -l)**, "
+            echo "rendered: **$(ls figures/diagrams/*.pdf 2>/dev/null | wc -l)**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  versions:
+    name: Check pinned versions against PyPI
+    runs-on: ubuntu-latest
+    # Advisory only. The book pins deliberately; this job exists so drift is
+    # visible on every build rather than discovered by a reader.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compare preamble pins to the current release on PyPI
+        run: python3 tools/check_versions.py >> "$GITHUB_STEP_SUMMARY"

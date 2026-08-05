@@ -1,0 +1,25 @@
+graph LR
+  subgraph py["What you write"]
+    F["decorated with @tool<br/>def search_orders(<br/>customer_id: str,<br/>limit: int = 10<br/>)<br/>docstring: Find a customer's<br/>recent orders."]
+  end
+
+  subgraph sent["What the model receives"]
+    N1["name: search_orders"]
+    N2["description: Find a customer's<br/>recent orders."]
+    N3["parameters:<br/>customer_id, string, required<br/>limit, integer, default 10"]
+  end
+
+  F --> N1
+  F --> N2
+  F --> N3
+
+  W["ALL THREE ARE PROMPT.<br/>The function name, the docstring and the<br/>type hints are how the model decides<br/>whether to call this at all.<br/>A vague docstring is a routing bug<br/>your tests cannot see."]
+
+  sent -.- W
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef s fill:#E8F4F0,stroke:#0E7C7B
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class F n
+  class N1,N2,N3 s
+  class W warn

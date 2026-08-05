@@ -1,0 +1,27 @@
+graph TB
+  subgraph run1["FIRST RUN"]
+    A["node: draft"] --> CP1["checkpoint committed"]
+    CP1 --> B["node: send_email"]
+    B --> SE["side effect:<br/>email leaves the building"]
+    SE --> X["crash — node never returns"]
+  end
+
+  X --> CP2["NO checkpoint.<br/>The state update from send_email<br/>was never committed."]
+
+  subgraph run2["RESUME"]
+    CP2 --> C["draft is NOT re-run —<br/>its checkpoint stands"]
+    C --> D["send_email RUNS AGAIN<br/>from the top"]
+    D --> SE2["side effect AGAIN:<br/>second email"]
+  end
+
+  N["The checkpoint protected the STATE.<br/>Nothing protected the WORLD.<br/>Measured: log shows one 'sent',<br/>outbox contains two emails."]:::warn
+
+  SE2 -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C,stroke-width:2px
+  classDef cp fill:#E8F4F0,stroke:#0E7C7B
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class A,B,C,D n
+  class SE,SE2,X bad
+  class CP1,CP2 cp

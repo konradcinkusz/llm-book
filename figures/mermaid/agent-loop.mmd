@@ -1,0 +1,18 @@
+graph TD
+  S["__start__"] --> M["model"]
+  M --> D{"tool calls in<br/>the response?"}
+  D -->|"yes"| T["tools"]
+  T --> M
+  D -->|"no"| E["__end__"]
+
+  N1["Four nodes. Adding tools,<br/>a system prompt, middleware or a<br/>checkpointer changes NONE of them."]:::note
+  N2["The exit condition is<br/>'the model stopped asking'.<br/>Nothing bounds this loop<br/>except a call-limit middleware<br/>or recursion_limit."]:::warn
+
+  M -.- N1
+  D -.- N2
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef note fill:#FFFFFF,stroke:#D8DEE4,color:#5A5A5A
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class S,M,T,E n
+  class D n

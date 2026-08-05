@@ -1,0 +1,232 @@
+\chapter{Interview Preparation}
+\label{app:interview}
+
+\noindent
+This book began as preparation material for a specific conversation, and this
+appendix is what remains of that. It is also a decent self-assessment: if you can
+answer these without reaching for the chapter, you have the material.
+
+Answers are compressed and each cross-references the chapter that argues the case
+properly --- because an answer you can only recite does not survive a follow-up.
+
+% ============================================================
+\section{Async Python}
+\label{sec:appD-async}
+\index{interview!async Python}
+
+\textbf{Concurrency versus parallelism?} Concurrency is interleaving on one
+thread at \code{await} points --- ideal for I/O. Parallelism is simultaneous
+execution on several cores, blocked for bytecode by the GIL, so CPU work needs
+processes. Measured: four CPU units across four threads took 3.7$\times$ one
+unit; across four processes, 1.0$\times$ (Ch.~\ref{ch:asyncio}).
+
+\textbf{What does the GIL cost you?} Nothing on I/O --- blocking I/O releases it.
+Everything on computation.
+
+\textbf{\code{gather} versus \code{TaskGroup}?} Identical on speed --- measured
+at 0.126 against 0.125\,s. The difference is failure semantics: \code{gather}
+propagates the first exception and \textbf{leaves siblings running}, which is
+observable as the sibling completing after your handler has run. \code{TaskGroup}
+cancels them and waits. Choose on semantics; anyone choosing on speed is choosing
+on a difference that does not exist.
+
+\textbf{What happens if I call \code{requests.get} in a coroutine?} You block the
+loop and every other request in the process. Measured at 10$\times$ worst-case
+latency in-process, and 44\% of throughput at the service level
+(Ch.~\ref{ch:serving}).
+
+\textbf{How does cancellation work?} \code{CancelledError} is injected at the
+next \code{await} --- not a flag you poll. Catch it to clean up, then
+\textbf{re-raise}, or the service will not shut down. Note bare \code{except}
+catches it and \code{except Exception} does not.
+
+\textbf{Thread or process?} Thread for blocking I/O with no async alternative;
+process for CPU. Native async library first.
+
+\textbf{How do you test async code?} \code{pytest-asyncio} with
+\code{asyncio\_mode = "auto"}, fakes rather than network, a timeout on every
+test. And a test that asserts async tests actually run --- if the mode setting is
+lost they report passed without executing.
+
+% ============================================================
+\section{LangChain}
+\label{sec:appD-langchain}
+\index{interview!LangChain}
+
+\textbf{LangChain versus LangGraph?} Not alternatives. LangGraph is the
+runtime; LangChain 1.x is a thin layer over it. The agent factory returns a
+compiled graph whose method resolution order runs through \api{Pregel} and
+\api{Runnable} --- which is why every agent inherits checkpointing, streaming
+and interrupts (Ch.~\ref{ch:landscape}).
+
+\textbf{What changed in 1.0?} The agent factory replaced the two retired
+constructors; middleware became the extension mechanism; standard content blocks
+normalised provider differences; structured output folded into the loop; the
+namespace went from 43 submodules to 6, with the rest in
+\pkg{langchain-classic}; a Python 3.10 floor; and a commitment to no breaking
+changes before 2.0.
+
+\textbf{What is middleware?} Six hooks around the agent loop, executing inside
+the compiled graph. Conceptually the ASP.NET Core pipeline, exactly ---
+\code{handler(request)} is \code{await next(ctx)}, and not calling it
+short-circuits. Order: \code{before\_*} in declaration order, \code{wrap\_*}
+nested, \code{after\_*} \textbf{reversed}.
+
+\textbf{How does the model choose a tool?} From the schema --- name, docstring,
+type hints, field descriptions. All of it is prompt. Quality degrades past
+roughly twenty tools; the fixes are structural, not stylistic.
+
+\textbf{How do you force a response shape?} \code{response\_format} with a
+Pydantic schema. Three strategies: provider-native, tool-based, automatic.
+Prompted JSON is a pre-1.0 pattern. And a schema constrains shape, never truth.
+
+% ============================================================
+\section{LangGraph}
+\label{sec:appD-langgraph}
+\index{interview!LangGraph}
+
+\textbf{How does state work?} A \code{TypedDict}; nodes return partial updates.
+Without a reducer a key is overwritten; with one it is merged. Two parallel
+writes to an unreduced key raise \api{InvalidUpdateError} rather than letting
+scheduling order decide (Ch.~\ref{ch:stategraph}).
+
+\textbf{What is a superstep?} The execution unit. Nodes in one superstep run
+independently and \textbf{cannot see each other's writes}; updates merge at the
+boundary, which is also where the checkpoint is taken. Demonstrable: two nodes
+both read \code{counter=0} while a third, one step later, reads 2.
+
+\textbf{\api{Send}?} Dynamic fan-out --- N instances of a node, each with its own
+payload rather than the shared state, merged by a reducer.
+
+\textbf{\api{Command} versus a conditional edge?} An edge only chooses the next
+node. \api{Command} updates state and jumps together, and with
+\code{graph=Command.PARENT} crosses a subgraph boundary --- the swarm mechanism.
+Annotate its return type or the drawn graph omits the edge.
+
+\textbf{Checkpointer versus store?} Checkpointer: per \code{thread\_id}, full
+state snapshots, written by the runtime, for resumption. Store: across threads
+and users, JSON documents, written by you, for long-term memory.
+
+\textbf{What is durable execution, and where is the catch?} State written every
+superstep, so a crash resumes from the last boundary. The catch: \textbf{resuming
+re-runs the whole node}, including the model call and the side effect. Measured:
+a crash after sending an email sends it twice, while the state log shows one send
+--- the checkpoint protected the state and nothing protected the world. Fix with
+an idempotency key derived from the intent, and isolate effects in their own
+nodes.
+
+\textbf{How do you add human approval?} \api{interrupt(payload)} plus a
+checkpointer and a \code{thread\_id}. The paused run is a row, resumable days
+later on another pod. Trap: code before the interrupt \emph{in the same node}
+re-runs --- measured at twice.
+
+\textbf{Why is \code{InMemorySaver} not production?} It does not survive a
+restart or reach another pod. A run paused for approval ceases to exist.
+
+\textbf{When multi-agent, and when not?} On symptoms: an unmanageable prompt, too
+many tools, real parallelism, an independent critic. Not by default --- a
+supervisor makes 2.5$\times$ the model calls, and three of its five calls are
+routing rather than work (Ch.~\ref{ch:multi-agent}). The call count is a hard
+number, because the topology determines it. The context multiple that goes with
+it, 2.8$\times$, is indicative rather than exact --- it moves with how long the
+replies are. Saying which of your numbers is which is worth more in an interview
+than the numbers.
+
+% ============================================================
+\section{Production and system design}
+\label{sec:appD-production}
+\index{interview!system design}
+
+\textbf{Design a service for a thousand concurrent users.} FastAPI, agent built
+once in \code{lifespan}, \code{AsyncPostgresSaver} on a shared database so pods
+are stateless, SSE for streaming, a per-process semaphore plus jittered backoff
+for provider limits, three timeout levels, a queue for long work, and --- the
+part most people miss --- \textbf{one active run per \code{thread\_id}}, because
+two concurrent runs on one thread cause one of them to vanish entirely, with no
+error. Measured in Chapter~\ref{ch:serving}, along with p50 staying flat at
+103\,ms from 1 to 40 concurrent while throughput went 10 to 349/s.
+
+\textbf{The agent is looping. What do you do?} Find the repeating step in a
+trace. Return errors the model can act on rather than stack traces. Add a call
+limit. Use \api{RemainingSteps} to exit gracefully. Raising
+\code{recursion\_limit} is not a fix --- and it is worth knowing that its
+default is 10007 rather than the 25 nearly everyone will say, so it is not
+functioning as a cost control unless you set it yourself.
+
+\textbf{How do you control cost?} The two large levers are design decisions:
+context strategy (measured 84\% from projecting tool results) and topology
+(2.5$\times$ the model calls for a supervisor). Then enforcement --- model per
+role, call limits, prompt
+caching, per-conversation budget with an alert on the budget rather than the
+invoice.
+
+\textbf{How do you test something non-deterministic?} Layered. Tools, nodes and
+reducers as pure functions. Graph flow with a scripted fake model --- noting no
+in-box fake implements \code{bind\_tools}, so you write a five-line subclass.
+Quality by evaluation with \code{num\_repetitions}, asserting on behaviour rather
+than exact text. A thin marked layer of real-provider tests outside CI.
+
+\textbf{How do you defend against prompt injection?} Every effective control is
+outside the model: tool allowlists per path, authorisation checked in
+\code{wrap\_tool\_call} against the user's permissions, approval gates on
+irreversible actions, sandboxing with no egress. Instructing the model to ignore
+injected instructions is a preference, not a control.
+
+\textbf{How would you migrate 0.x to 1.x?} Evaluation set \emph{first}, or you
+cannot tell a regression from a difference. Then inventory, install
+\pkg{langchain-classic} as a bridge to get green, then \api{AgentExecutor} to
+\api{create\_agent}, memory classes to a checkpointer, retrieval to a tool. LCEL
+survives.
+
+% ============================================================
+\section{Questions worth asking them}
+\label{sec:appD-ask}
+\index{interview!questions to ask}
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item Where is your split between \api{create\_agent} and raw
+      \api{StateGraph}, and what drove you down a level?
+\item How do you prevent two concurrent runs on one thread?
+\item Is there an evaluation set in CI, or is quality assessed by hand?
+\item What does one conversation cost, and is that a tracked metric?
+\item What is your checkpoint retention policy?
+\end{itemize}
+
+The last two are the ones that tell you most. A team that can answer them has run
+this in production.
+
+% ============================================================
+\section{Phrasing}
+\label{sec:appD-phrasing}
+\index{interview!phrasing}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}XX@{}}
+\toprule
+\textbf{Avoid} & \textbf{Say} \\
+\midrule
+``I use \api{AgentExecutor}'' & ``\api{AgentExecutor} was retired in 1.0; new
+  code uses \api{create\_agent}'' \\[3pt]
+``I chose LangGraph over LangChain'' & ``LangChain builds on LangGraph; I pick
+  the level to suit the problem'' \\[3pt]
+``Agents are non-deterministic so you can't test them'' & ``I test in layers ---
+  the flow with a fake model, quality with an evaluation set'' \\[3pt]
+``Multi-agent is better'' & ``Multi-agent costs measurably more; I reach for it
+  on specific symptoms'' \\[3pt]
+``The checkpointer makes it reliable'' & ``The checkpointer gives resumption;
+  idempotency you design, because the node re-runs'' \\[3pt]
+``My Python is weak, I'm mostly C\#'' & ``I came from .NET; asyncio maps to the
+  TPL and LangGraph is a durable workflow engine, which I know from production'' \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+On the last row. The scarce skill in this field is not the API --- that is a
+fortnight's work and it is documented. It is knowing what a system does when a
+dependency is slow, when a pod restarts mid-request, and when a component is
+non-deterministic and must still be tested. That is what a decade of backend
+engineering is, and this ecosystem is short of it. Say so without apology and
+without overstating it.
+\end{note}

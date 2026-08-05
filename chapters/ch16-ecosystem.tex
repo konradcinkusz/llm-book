@@ -1,0 +1,255 @@
+\chapter{The Ecosystem, the Alternatives and the Criticism}
+\label{ch:ecosystem}
+
+\begin{quote}\itshape
+The most useful thing you can say about a framework is where it is the wrong
+choice.
+\end{quote}
+
+\noindent
+Sixteen chapters of one library is enough to lose perspective. This chapter is
+the correction: what else exists, what those alternatives are genuinely better
+at, where no framework is the right answer, and what the well-founded criticisms
+of LangChain are --- as distinct from the ones that were true in 2023 and have
+been repeated without checking ever since.
+
+% ============================================================
+\section{When not to use a framework}
+\label{sec:no-framework}
+\index{framework!when not to use}
+
+\mermaidfig{eco-decision-tree}{%
+  The decision, with the honest answer at the top.}{%
+  Framework or not, and which level.}
+
+For \textbf{one or two model calls behind a clean function} --- classify this,
+extract those fields, rewrite that paragraph --- the provider's own SDK is faster
+to write, easier to debug, and has fewer moving parts that can change underneath
+you. There is no loop, no state to persist, nothing to interrupt, no topology. A
+framework contributes a dependency tree and an abstraction to see through.
+
+The framework earns its place at the point where at least one of these is true,
+and the list is short on purpose:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item the work is a loop whose length you do not know in advance;
+\item it must survive a restart, or resume in another process;
+\item a human must approve something in the middle;
+\item you need to stream intermediate state;
+\item the control flow is a topology rather than a sequence.
+\end{itemize}
+
+\begin{note}
+Those five are Part~III. If none applies, you have read a book about a tool you
+do not need for this problem --- which is a better outcome than adopting it and
+discovering that in six months.
+\end{note}
+
+% ============================================================
+\section{MCP}
+\label{sec:mcp}
+\index{MCP}
+\index{MCP!adapters}
+\index{packages!mcp-adapters}
+
+The Model Context Protocol decouples tool \emph{execution} from agent
+\emph{logic}. Tools live behind servers speaking a standard protocol;
+\pkg{langchain-mcp-adapters} loads them and hands them to an agent as ordinary
+tools.
+
+What that buys, in order of how much it matters:
+
+\textbf{Tools become a deployment concern rather than a code concern.} A team
+that owns a system exposes an MCP server for it, and every agent in the
+organisation can use it without importing anything.
+
+\textbf{Scaling past twenty tools.} Chapter~\ref{ch:tools} put selection
+degradation around there. Loading a task-relevant subset from a catalogue is the
+structural answer, and it is the one that does not cost a model call or a
+topology.
+
+\textbf{A process boundary you can secure.} Chapter~\ref{ch:security}'s sandbox
+argument is easier when the tool already runs somewhere else.
+
+\begin{warning}
+It is not free. An MCP server is a service to deploy, monitor, version and
+authorise, and it puts a network hop in the middle of every tool call. For five
+in-process tools it is pure overhead. Be honest about the scale at which it
+starts paying --- and the mini-project's own answer, in stage 13, may well be
+``not at this size''.
+\end{warning}
+
+% ============================================================
+\section{Deep Agents}
+\label{sec:deep-agents}
+\index{deepagents@\texttt{deepagents}}
+
+\pkg{deepagents} builds planning, subagents and a virtual filesystem on top of
+LangGraph, aimed at long research-style tasks. The property worth knowing: it
+returns a compiled graph, so nothing is a one-way door --- you can drop to raw
+\api{StateGraph} for any part of it.
+
+\begin{versionbox}
+It is still pre-1.0 and moving fast --- over fifty releases in the current year,
+one of which landed while Chapter~\ref{ch:landscape} was being written and made
+this book's pin one version stale on the same day. That is not a criticism; it is
+the correct expectation for a package that has not committed to stability. Hold
+it at arm's length from anything you must support.
+\end{versionbox}
+
+% ============================================================
+\section{The alternatives}
+\label{sec:alternatives}
+\index{alternatives!PydanticAI}
+\index{alternatives!OpenAI Agents SDK}
+\index{alternatives!CrewAI and AutoGen}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Framework} & \textbf{Genuinely better at} & \textbf{Cost} \\
+\midrule
+PydanticAI & Type safety and lightness. If you liked
+  Chapter~\ref{ch:python}'s argument about Pydantic, you will like it. & Less
+  mature durability and orchestration \\[3pt]
+OpenAI Agents SDK & Simplicity inside one provider's ecosystem; state managed
+  for you & Provider lock-in, by design \\[3pt]
+CrewAI, AutoGen & Fast to a demo; role-based framing reads well & Weaker on
+  persistence and resumption --- the Part~III material \\[3pt]
+Microsoft Agent Framework & .NET-first, Azure-integrated, typed graph edges &
+  A different runtime, covered below \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The bridge from .NET}
+\label{sec:maf-bridge}
+\index{.NET!Microsoft Agent Framework}
+\index{alternatives!Microsoft Agent Framework}
+
+\mermaidfig{eco-maf-langgraph}{%
+  The concepts map almost one-for-one, and where they diverge is instructive.}{%
+  Microsoft Agent Framework and LangGraph concepts compared.}
+
+If you arrived here from .NET, Microsoft Agent Framework is the closest thing in
+that ecosystem, and the conceptual overlap is large: both are Pregel-descended
+graph runtimes with supersteps, checkpointing and human-in-the-loop gates.
+
+The sharpest difference is instructive rather than decisive. \textbf{MAF's edges
+are typed and a type mismatch is a silent drop} --- no exception, no warning, and
+the only evidence is a tag on a trace span. \textbf{LangGraph's state is a dict
+and a conflicting write is an \api{InvalidUpdateError}} (Chapter~\ref{ch:stategraph}).
+Neither is obviously right. Static typing catches more at build time and fails
+more quietly at run time; the dict catches less and fails loudly.
+
+\begin{note}
+Knowing both is worth more than preferring one. The concepts in Part~III ---
+supersteps, replay boundaries, idempotent side effects, approval gates --- are
+properties of durable graph execution rather than of LangGraph, and they transfer
+to MAF, to Temporal and to Durable Functions with the vocabulary changed.
+\end{note}
+
+% ============================================================
+\section{Criticism worth taking seriously}
+\label{sec:criticism}
+\index{framework!criticism}
+
+Most published criticism of LangChain describes the pre-1.0 library and is
+therefore about something that no longer exists
+(Chapter~\ref{ch:landscape}). Here is what still holds.
+
+\textbf{Abstraction depth against debugging cost.} When an agent misbehaves you
+are debugging through several layers you did not write. Chapter~\ref{ch:landscape}'s
+habit of printing the graph and Chapter~\ref{ch:observability}'s tracing exist
+because the abstraction is genuinely thick. This is a real cost and it is paid on
+your worst day.
+
+\textbf{The migration tax was substantial.} The 1.0 split moved a large surface
+into \pkg{langchain-classic} and left plain \code{ModuleNotFoundError} behind
+with no hint about where things went (Chapter~\ref{ch:landscape}). That was
+avoidable, and teams paid for it.
+
+\textbf{Release cadence outruns documentation.} Dozens of releases a year across
+the core packages. Every chapter of this book found at least one thing where the
+package and the published description disagreed --- \api{create\_react\_agent}
+still working, the summarisation trigger, the call-limit parameter. The library
+is right and the documentation lags, which is survivable only if you read the
+package.
+
+\textbf{Dependency surface.} A default install pulls in a great deal. For a
+service subject to supply-chain review, that is a genuine, recurring cost.
+
+\textbf{The trace is not the whole truth.} It shows what the framework recorded,
+not what the model was thinking, and it is easy to over-read.
+
+\begin{note}
+\textbf{What 1.0 genuinely fixed}, because a criticism section that only accuses
+is not useful. The namespace went from forty-three submodules to six.
+\api{content\_blocks} removed provider branching from application code
+(Chapter~\ref{ch:models}). Middleware replaced a family of bespoke extension
+points with one pattern (Chapter~\ref{ch:agents}). And the no-breaking-changes
+commitment is what makes this book worth writing at all --- the same book against
+0.x would have been wrong within a quarter.
+\end{note}
+
+\begin{warning}
+The criticism you should not repeat, because it is now false: ``LangChain is a
+pile of chains and prompt templates.'' It was fair once. The library it describes
+was retired in October 2025, and repeating it in an interview signals that you
+have not looked since.
+\end{warning}
+
+% ============================================================
+\section{Protocols}
+\label{sec:protocols}
+\index{protocols!A2A}
+\index{protocols!AG-UI}
+
+Two worth a sentence each. \textbf{A2A} standardises agent-to-agent
+communication, so an agent in another organisation can be called like a local
+one. \textbf{AG-UI} standardises agent-to-frontend streaming, which is the
+problem Chapter~\ref{ch:serving} solved by hand with SSE.
+
+Both are early. Knowing they exist is currently worth more than adopting them.
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch16-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item For one or two calls behind a function, use the provider SDK.
+\item Five symptoms justify the framework; all five are Part~III.
+\item MCP makes tools a deployment concern and is the structural answer to too
+      many tools. It costs a service and a network hop.
+\item Deep Agents returns a compiled graph, so it is not a one-way door --- but
+      it is pre-1.0.
+\item The concepts transfer to MAF, Temporal and Durable Functions. Typed edges
+      fail silently; dict state fails loudly.
+\item The live criticisms: abstraction depth, the migration tax, cadence
+      outrunning documentation, dependency surface.
+\item ``A pile of chains'' is no longer true and repeating it dates you.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Implement one small task three ways --- provider SDK, \api{create\_agent},
+raw \api{StateGraph}. Count the lines and note what each made hard.
+
+\textbf{2.} Serve two tools over MCP and run the same test suite against
+in-process and MCP versions. Then decide, for your scale, whether it earned its
+keep.
+
+\textbf{3.} Write down your three strongest criticisms of this ecosystem, then
+check each against the installed package. At least one will turn out to describe
+the pre-1.0 library.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 13 --- MCP and the comparisons.} The same tools served over MCP,
+loaded through the adapters, with the same test suite run against both --- which
+is the entire point: if the tests do not care, the abstraction held.
+
+The stage's decision entry is the interesting deliverable, and it is allowed to
+conclude that MCP is not worth it at this size. A decisions document that only
+records adoptions is not a decisions document.
+\end{projectbox}

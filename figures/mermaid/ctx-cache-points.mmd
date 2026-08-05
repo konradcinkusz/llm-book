@@ -1,0 +1,25 @@
+graph TB
+  subgraph hit["CACHE HITS — stable prefix"]
+    H1["system prompt<br/><i>never changes</i>"] --> H2["tool definitions<br/><i>never change</i>"]
+    H2 --> H3["conversation so far<br/><i>append-only</i>"]
+    H3 --> H4["new user message"]
+    HC["cache breakpoint here<br/>-> everything above is reused"]:::good
+    H3 -.- HC
+  end
+
+  subgraph miss["CACHE MISSES — something moved"]
+    M1["system prompt with<br/>a TIMESTAMP in it"] --> M2["tool definitions"]
+    M2 --> M3["conversation, RE-ORDERED<br/>or with an edited old message"]
+    M3 --> M4["new user message"]
+    MC["prefix differs by one token<br/>-> the WHOLE prefix is recomputed"]:::bad
+    M1 -.- MC
+  end
+
+  N["Caching is prefix-matched. One changed<br/>token near the front invalidates<br/>everything after it. Put the volatile<br/>parts LAST."]:::warn
+  miss -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef good fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C,stroke-width:2px
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class H1,H2,H3,H4,M1,M2,M3,M4 n

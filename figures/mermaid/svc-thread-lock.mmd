@@ -1,0 +1,22 @@
+graph TB
+  subgraph no["NO LOCK — measured"]
+    A1["request 1 arrives"] --> A3["both load the SAME checkpoint"]
+    A2["request 2 arrives"] --> A3
+    A3 --> A4["both run their supersteps"]
+    A4 --> A5["both write back"]
+    A5 --> A6["FINAL HISTORY:<br/>req-2, A saw 1, B saw 2<br/><br/>req-1 IS GONE.<br/>No error. No log line."]
+  end
+
+  subgraph yes["PER-THREAD LOCK"]
+    B1["request 1 acquires"] --> B2["runs to completion"]
+    B2 --> B3["releases"]
+    B3 --> B4["request 2 acquires,<br/>sees request 1's result"]
+    B4 --> B5["FINAL HISTORY:<br/>req-1, A saw 1, B saw 2,<br/>req-2, A saw 4, B saw 5<br/><br/>both present, in order."]
+  end
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C,stroke-width:2px
+  classDef good fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  class A1,A2,A3,A4,A5,B1,B2,B3,B4 n
+  class A6 bad
+  class B5 good

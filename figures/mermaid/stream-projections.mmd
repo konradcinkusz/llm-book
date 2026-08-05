@@ -1,0 +1,25 @@
+graph LR
+  RUN["ONE run<br/>astream_events(version='v3')"]
+
+  RUN --> M["stream.messages<br/><i>each has .text</i>"]
+  RUN --> T["stream.tool_calls<br/><i>name, input, output_deltas</i>"]
+  RUN --> V["stream.values<br/><i>full state per step</i>"]
+  RUN --> O["stream.output<br/><i>final result</i>"]
+  RUN --> I["stream.interrupts<br/><i>pending approvals</i>"]
+  RUN --> SA["stream.subagents"]
+  RUN --> SG["stream.subgraphs"]
+  RUN --> L["stream.lifecycle"]
+  RUN --> E["stream.extensions"]
+
+  M --> UI1["tokens to the browser"]
+  T --> UI2["'checking orders...' status"]
+  I --> UI3["approval prompt"]
+
+  N["Consume several concurrently<br/>under asyncio.gather.<br/>Each cursor drives the pump<br/>when its own buffer empties."]:::note
+  RUN -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef ui fill:#E8F4F0,stroke:#0E7C7B
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class RUN,M,T,V,O,I,SA,SG,L,E n
+  class UI1,UI2,UI3 ui

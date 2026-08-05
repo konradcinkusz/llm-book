@@ -1,0 +1,77 @@
+% ============================================================
+%  LangChain, LangGraph and Async Python
+%  Building Production Agents — for engineers arriving from .NET
+%  Konrad Cinkusz
+%
+%  Build:  latexmk -pdf main.tex
+%          (or: pdflatex main && makeindex main && pdflatex main)
+%
+%  Diagrams: make diagrams   (renders figures/mermaid/*.mmd to PDF)
+%
+%  To work on one chapter only, uncomment \includeonly below.
+% ============================================================
+
+\documentclass[11pt,twoside,openright]{book}
+
+\input{preamble}
+
+% \includeonly{chapters/ch01-landscape}
+
+\begin{document}
+
+% ------------------------------------------------------------
+\frontmatter
+
+\input{frontmatter/titlepage}
+
+\tableofcontents
+\listoffigures
+
+\input{frontmatter/introduction}
+
+% ------------------------------------------------------------
+\mainmatter
+
+\part{Foundations}
+\include{chapters/ch01-landscape}
+\include{chapters/ch02-python}
+\include{chapters/ch03-asyncio}
+\include{chapters/ch04-cancellation}
+
+\part{LangChain 1.x}
+\include{chapters/ch05-models}
+\include{chapters/ch06-tools}
+\include{chapters/ch07-agents-middleware}
+
+\part{LangGraph}
+\include{chapters/ch08-stategraph}
+\include{chapters/ch09-persistence}
+\include{chapters/ch10-interrupts-streaming}
+\include{chapters/ch11-multi-agent}
+
+\part{Production}
+\include{chapters/ch12-context}
+\include{chapters/ch13-serving}
+\include{chapters/ch14-observability-eval}
+\include{chapters/ch15-security-deployment}
+
+\part{Perspective}
+\include{chapters/ch16-ecosystem}
+\include{chapters/ch17-capstone}
+
+% ------------------------------------------------------------
+\appendix
+\part{Appendices}
+\include{appendices/appA-packages}
+\include{appendices/appB-cheatsheet}
+\include{appendices/appC-troubleshooting}
+\include{appendices/appD-interview}
+\include{appendices/appE-glossary}
+\include{appendices/appF-manifest}
+
+% ------------------------------------------------------------
+\backmatter
+
+\printindex
+
+\end{document}

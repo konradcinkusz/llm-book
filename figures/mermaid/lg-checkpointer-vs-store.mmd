@@ -1,0 +1,32 @@
+graph TB
+  subgraph cp["CHECKPOINTER — short-term"]
+    C1["Scope: ONE thread_id"]
+    C2["Holds: full state snapshot<br/>after every superstep"]
+    C3["Purpose: resume, replay,<br/>time travel"]
+    C4["Written automatically"]
+    C5["InMemorySaver / SQLite /<br/>Postgres / Redis"]
+  end
+
+  subgraph st["STORE — long-term"]
+    S1["Scope: ACROSS threads<br/>and users"]
+    S2["Holds: JSON documents<br/>under a namespace + key"]
+    S3["Purpose: preferences, profile,<br/>learned facts"]
+    S4["Written by YOUR code"]
+    S5["InMemoryStore / Postgres<br/>(optional semantic search)"]
+  end
+
+  T1["thread: user-42 / conv-1"] --> cp
+  T2["thread: user-42 / conv-2"] --> cp
+  T1 -.-> st
+  T2 -.-> st
+
+  N["Same user, two conversations.<br/>Two separate checkpoint histories,<br/>ONE store namespace."]:::note
+  st -.- N
+
+  classDef c fill:#E8F0F5,stroke:#1F4E79
+  classDef s fill:#E8F4F0,stroke:#0E7C7B
+  classDef t fill:#FFFFFF,stroke:#D8DEE4
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class C1,C2,C3,C4,C5 c
+  class S1,S2,S3,S4,S5 s
+  class T1,T2 t

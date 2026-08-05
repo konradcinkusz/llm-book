@@ -1,0 +1,146 @@
+\chapter{Packages, Versions and Migration}
+\label{app:packages}
+
+\noindent
+What each distribution owns, what this book was written against, and how to move
+a 0.x codebase without guessing.
+
+% ============================================================
+\section{The distributions}
+\label{sec:appA-distributions}
+\index{packages!distributions}
+\index{packages!map}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Distribution} & \textbf{Owns} \\
+\midrule
+\pkg{langchain-core} & The contracts: \api{Runnable}, messages, tool base
+  classes. 33 submodules. Everything depends on it. \\[3pt]
+\pkg{langgraph} & The runtime: \api{StateGraph}, Pregel execution, the functional
+  API. Pulls in \pkg{langgraph-checkpoint}, \pkg{-prebuilt}, \pkg{-sdk}. \\[3pt]
+\pkg{langchain} & The convenience layer: \api{create\_agent}, middleware,
+  \api{init\_chat\_model}. \textbf{6 submodules.} Depends on \pkg{langgraph}. \\[3pt]
+\pkg{langchain-classic} & The retired surface. \textbf{43 submodules.}
+  Maintenance mode; a migration bridge. \\[3pt]
+\pkg{langchain-<provider>} & One per model vendor. Chosen per project. \\[3pt]
+\pkg{langgraph-checkpoint-<backend>} & Postgres, SQLite, Redis. Chosen per
+  project. \\[3pt]
+\pkg{langsmith} & Tracing and evaluation. \\[3pt]
+\pkg{langchain-mcp-adapters} & Tools from MCP servers
+  (Ch.~\ref{ch:ecosystem}). \\[3pt]
+\pkg{deepagents} & Planning and subagents over LangGraph. Pre-1.0. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\textbf{These are separate version lines.} At the versions this book pins,
+\pkg{langgraph} is 1.2.x while \pkg{langgraph-checkpoint} is 4.x,
+\pkg{langgraph-prebuilt} is 1.1.x and \pkg{langgraph-sdk} is 0.4.x. ``We are on
+LangGraph 1.2'' is not a complete description of an environment. Pin the lot, in
+a committed lockfile.
+\end{warning}
+
+\section{Pinned here}
+\label{sec:appA-pins}
+\index{packages!pinning}
+\index{versioning!pinned here}
+
+Every listing in this book was executed against these, and a CI job compares them
+against PyPI on each build:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\pkg{langchain} & \lcver \\
+\pkg{langchain-core} & \lccorever \\
+\pkg{langgraph} & \lgver \\
+\pkg{langgraph-checkpoint-postgres} & \lgpgver \\
+\pkg{langchain-classic} & \lcclassicver \\
+\pkg{langchain-anthropic} & \lcanthropicver \\
+\pkg{langsmith} & \lsver \\
+\pkg{langchain-mcp-adapters} & \mcpadapterver \\
+\pkg{deepagents} & \deepagentsver \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Python: \pymin{} is the floor LangChain 1.x declares; this book targets \pyver{}
+and uses \code{TaskGroup} and \code{asyncio.timeout} throughout, both of which
+need 3.11.
+
+% ============================================================
+\section{What moved, and where it went}
+\label{sec:appA-moved}
+\index{migration!where things went}
+\index{packages!classic}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Pre-1.0} & \textbf{Now} & \textbf{Note} \\
+\midrule
+\api{AgentExecutor} & \api{create\_agent} & Gone from \pkg{langchain}; alive in
+  classic \\[3pt]
+\api{initialize\_agent} & \api{create\_agent} & Same \\[3pt]
+\api{LLMChain} & Compose \api{Runnable}s, or \api{create\_agent} & Module gone
+  entirely \\[3pt]
+\code{langchain.chains} & \pkg{langchain-classic} & Plain
+  \code{ModuleNotFoundError} \\[3pt]
+\code{langchain.memory} & Checkpointer + store (Ch.~\ref{ch:persistence}) & A
+  different design, not a rename \\[3pt]
+\code{langchain.retrievers} & Retrieval as a tool (Ch.~\ref{ch:tools}) & \\[3pt]
+\code{langchain.hub} & \pkg{langchain-classic} & \\[3pt]
+\code{create\_react\_agent} & \api{create\_agent} & \textbf{Deprecated, not
+  removed.} Still imports and works \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+The error you get is \code{ModuleNotFoundError: No module named
+'langchain.chains'} --- the ordinary Python error for a typo. It does not mention
+\pkg{langchain-classic}, 1.0, or that the code was ever correct. Most of the
+first hour of a migration is spent discovering by search what one line of error
+text could have said.
+\end{warning}
+
+% ============================================================
+\section{Migrating, in order}
+\label{sec:appA-migration}
+\index{migration!order of work}
+\index{migration!checklist}
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Build the evaluation set first.} Before changing anything. Without
+      it you cannot distinguish a regression from a difference, and every later
+      step is guesswork. Chapter~\ref{ch:observability}.
+\item \textbf{Inventory.} Grep for the retired names: \api{AgentExecutor},
+      \api{initialize\_agent} and \api{LLMChain}, plus imports from the
+      \code{chains}, \code{memory}, \code{retrievers} and \code{hub}
+      modules.
+\item \textbf{Install \pkg{langchain-classic} and rewrite imports.} The project
+      runs again, unchanged in behaviour. Stop here and commit.
+\item \textbf{Agents.} \api{AgentExecutor} $\rightarrow$ \api{create\_agent}.
+      Custom callbacks and wrappers usually become middleware
+      (Ch.~\ref{ch:agents}).
+\item \textbf{Memory.} Memory classes $\rightarrow$ a checkpointer with a
+      \code{thread\_id}. This is a design change, not a substitution: read
+      Chapter~\ref{ch:persistence} before starting.
+\item \textbf{Retrieval.} A fixed retrieval step $\rightarrow$ a tool the agent
+      may call. Chapter~\ref{ch:context} measured why this matters for cost.
+\item \textbf{Response parsing.} If you have a module that branches per provider,
+      \api{content\_blocks} deleted the need for it
+      (Ch.~\ref{ch:models}).
+\item \textbf{Re-run the evaluation set} after each step, not at the end.
+\end{enumerate}
+
+\begin{note}
+LCEL composition survives. If your 0.x code pipes \api{Runnable}s together, that
+part still works and does not need touching.
+\end{note}

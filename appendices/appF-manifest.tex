@@ -1,0 +1,30 @@
+\chapter{Diagram and Screenshot Manifest}
+\label{app:manifest}
+
+\noindent
+Every figure the book is still waiting on, and every diagram it renders. Both
+lists are generated at build time from the source, so neither can silently drift
+from what the chapters actually ask for.
+
+\section*{How this works}
+
+Diagrams are Mermaid. The source of truth is a \code{.mmd} file under
+\code{figures/mermaid/}, which is committed. Running \code{make diagrams}
+renders each one to a PDF under \code{figures/diagrams/}, which is not
+committed. A diagram change therefore reviews as a text diff rather than as a
+binary blob, and an unrendered build prints the Mermaid source in place of the
+figure so the reader still sees the structure.
+
+Screenshots are captures of things that cannot be drawn --- a trace waterfall, a
+Studio session, an evaluation report. Each request states precisely what to
+capture. Until the file exists, a placeholder carrying those instructions prints
+in its place.
+
+\medskip
+\noindent
+\code{make debt} prints both lists, plus the count of chapters not yet written
+and listings not yet run, and CI publishes the same figures on every build.
+
+\listofdiagrams
+
+\listofshots

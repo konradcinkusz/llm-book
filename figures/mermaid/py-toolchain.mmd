@@ -1,0 +1,21 @@
+graph LR
+  A["pyproject.toml<br/>ONE file: dependencies,<br/>ruff, mypy, pytest"] --> B["uv sync"]
+  B --> C["uv.lock<br/>exact, committed"]
+  C --> D[".venv"]
+  D --> E["uv run ruff check"]
+  D --> F["uv run mypy --strict"]
+  D --> G["uv run pytest"]
+  E --> H["CI gate"]
+  F --> H
+  G --> H
+
+  N["The .NET equivalents:<br/>pyproject.toml is the .csproj,<br/>uv.lock is packages.lock.json,<br/>uv is dotnet restore plus the SDK<br/>version pin, in one tool."]
+
+  A -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef gate fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class A,B,C,D,E,F,G n
+  class H gate
+  class N note

@@ -1,0 +1,285 @@
+\chapter{Security, Cost and Deployment}
+\label{ch:security}
+
+\begin{quote}\itshape
+Content a tool fetched is data. It is never an instruction, no matter how
+confidently it is phrased.
+\end{quote}
+
+\noindent
+An agent is a system that reads untrusted text and then decides what to do next.
+Stated that way the security problem is obvious and the mitigations follow
+directly --- and the single organising principle is that \textbf{every effective
+control is enforced outside the model}.
+
+% ============================================================
+\section{Prompt injection}
+\label{sec:injection}
+\index{security!prompt injection}
+\index{security!untrusted content}
+
+\mermaidfig{sec-injection-path}{%
+  The path, and four controls. None of them asks the model to decline.}{%
+  Prompt injection and the controls that stop it.}
+
+A web page your agent reads, a ticket comment, an email, a PDF --- any of them
+can contain text addressed to the model rather than to the user. The model has no
+reliable way to distinguish the two, because to a model they are the same
+sequence of tokens.
+
+\begin{warning}
+Do not attempt to solve this by instructing the model to ignore instructions in
+tool output. It helps a little, it fails under adversarial pressure, and relying
+on it means your control is a preference. Write the instruction if you like ---
+and put a real control behind it.
+\end{warning}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Control} & \textbf{What it actually does} \\
+\midrule
+Tool allowlist per path & The retrieval path physically cannot reach
+  \code{send\_email} \\[3pt]
+Authorisation in the wrapper & Checked in code against the \emph{user's}
+  permissions (\S\ref{sec:authz}) \\[3pt]
+Approval gate & A human sees the recipient before it goes
+  (Ch.~\ref{ch:interrupts}) \\[3pt]
+Egress policy & The sandbox cannot reach the internet, so exfiltration has
+  nowhere to go \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================
+\section{Authorisation}
+\label{sec:authz}
+\index{security!tool authorisation}
+\index{security!least privilege}
+
+The rule: \textbf{a tool runs with the user's permissions, not the service's.}
+
+\begin{python}[caption={The check, in code the model cannot reach}, label={lst:authz-mw}]
+class ToolAuthorisation(AgentMiddleware):
+    def wrap_tool_call(self, request, handler):
+        if not permitted(request.runtime.context.user_id,
+                         request.tool_call["name"]):
+            return ToolMessage(
+                content="Not permitted.",
+                tool_call_id=request.tool_call["id"],
+            )                                # handler never called
+        return handler(request)
+\end{python}
+
+Chapter~\ref{ch:agents} showed the mechanism; this is why it matters. Returning
+without calling \code{handler} short-circuits the pipeline, and the refusal comes
+back as a tool message so the model can explain it rather than the run failing.
+
+The identity comes from \code{runtime.context} --- Chapter~\ref{ch:stategraph}
+insisted it belongs there rather than in state, and this is the reason: state is
+mutable by any node and is checkpointed, so a user id in state is a permission
+that can be overwritten mid-run and then persisted.
+
+% ============================================================
+\section{Personal data}
+\label{sec:pii}
+\index{security!PII}
+\index{security!retention}
+
+Three obligations, and the third is the one people miss.
+
+\textbf{Redaction before the provider sees it.} Chapter~\ref{ch:agents}'s PII
+middleware, with the default corrected: it is input-only unless you ask for
+\code{apply\_to\_output} and \code{apply\_to\_tool\_results}. Data flowing out of
+a tool into the context is not covered by the default.
+
+\textbf{Processing region.} Which country the inference happens in is a
+contractual question with a technical answer, and providers differ in what they
+will commit to.
+
+\textbf{Checkpoints are personal data.} This is the one that gets missed.
+Chapter~\ref{ch:persistence}'s checkpointer writes the entire conversation to
+your database, every superstep. It is a complete record of what a user said, and
+it needs a retention policy, a deletion path for subject-access requests, and to
+be in scope for whatever review your other personal data gets.
+
+\begin{warning}
+\textbf{A checkpoint is not an audit log.} They look similar and answer different
+questions. A checkpoint is state for resumption --- it is overwritten, forked by
+time travel (Ch.~\ref{ch:interrupts}), and deleted by retention. An audit log is
+append-only, immutable, and retained deliberately.
+
+If you need to answer ``who did what, with which tool, and what came back'',
+write that separately in \code{wrap\_tool\_call}. Deriving it from checkpoints
+will fail the first time someone asks a question about a deleted thread.
+\end{warning}
+
+% ============================================================
+\section{Cost}
+\label{sec:cost-control}
+\index{cost!budget}
+\index{cost!cap}
+
+Chapter~\ref{ch:context} measured 5$\times$ between context strategies and
+Chapter~\ref{ch:multi-agent} measured 2.8$\times$ between topologies. Those are
+the two large levers, and they are design decisions rather than settings. What
+remains is enforcement:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Control} & \textbf{Where} \\
+\midrule
+Model per role & Cheap for routing, strong for work
+  (Ch.~\ref{ch:multi-agent}) \\[3pt]
+Call limits & \code{thread\_limit} and \code{run\_limit}
+  (Ch.~\ref{ch:agents}) \\[3pt]
+Prompt caching & Stable prefix first (Ch.~\ref{ch:context}) \\[3pt]
+Node caching & \api{CachePolicy} plus a cache at compile time
+  (Ch.~\ref{ch:persistence}) \\[3pt]
+Budget cap & A running total in state; halt when exceeded \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+Alert on the budget, not on the invoice. A per-conversation cost recorded from
+\code{usage\_metadata} (Ch.~\ref{ch:models}) turns a monthly surprise into a
+threshold you can page on --- and Chapter~\ref{ch:observability}'s CI check turns
+it into something a pull request can fail.
+\end{note}
+
+% ============================================================
+\section{Sandboxing}
+\label{sec:sandbox}
+\index{security!sandbox}
+\index{security!code execution}
+
+If your agent executes code --- and the pressure to add that is considerable ---
+the model is now writing programs on your infrastructure from untrusted input.
+
+Three layers, all of them necessary: a container with no network, a read-only
+filesystem, dropped capabilities and a non-root user; resource limits, because an
+infinite loop is a denial of service; and an egress policy, because without
+network access an injection has nowhere to send what it stole.
+
+\begin{warning}
+Syntax-tree validation is not a security boundary. Neither is a denylist of
+dangerous functions. Both are worth having and neither is what stands between you
+and a compromised host --- that is the container and the network policy.
+\end{warning}
+
+% ============================================================
+\section{Deployment}
+\label{sec:deployment}
+\index{deployment!container}
+\index{deployment!migrations}
+
+\mermaidfig{deploy-shutdown}{%
+  SIGTERM to exit, and the one thing that breaks all of it.}{%
+  Graceful shutdown sequence under Kubernetes.}
+
+Chapter~\ref{ch:serving} built the service; this is what surrounds it.
+
+\textbf{The container} runs as non-root, on a slim base, with dependencies from
+the lockfile rather than resolved at build time --- so the image is what you
+tested.
+
+\textbf{Probes.} Readiness should fail the moment shutdown begins, so the load
+balancer stops sending work while the pod is still serving what it has. Liveness
+should not depend on the provider being up, or a provider outage restarts every
+pod you own at the moment they are least able to recover.
+
+\textbf{The grace period must exceed your longest run}, or the drain in the
+diagram is decorative. If your runs are longer than a sensible grace period, that
+is Chapter~\ref{ch:serving}'s queue telling you where they belong.
+
+\begin{warning}
+Every part of the shutdown sequence depends on cancellation propagating. One
+swallowed \code{CancelledError} anywhere in the request path
+(Ch.~\ref{ch:cancellation}) turns a graceful drain into a wait followed by
+SIGKILL, with in-flight work lost --- exactly as if you had written no shutdown
+handler at all.
+\end{warning}
+
+\subsection{Managed, or not}
+\label{sec:platform}
+\index{deployment!managed platform}
+
+LangGraph Platform provides the runtime this book has been building by hand:
+threads, runs, cron, queueing, scaling, and the double-texting policies from
+Chapter~\ref{ch:interrupts} as configuration.
+
+The trade is the usual one, and worth stating plainly rather than resolving:
+self-hosting means you own the per-thread lock, the queue, the drain and the
+retention job --- all of which this book has shown you how to build, and none of
+which is free to operate. Chapter~\ref{ch:ecosystem} weighs it properly.
+
+% ============================================================
+\section{Pinning, in an ecosystem that ships weekly}
+\label{sec:pinning}
+\index{versioning!pinning}
+\index{packages!pinning}
+
+Chapter~\ref{ch:landscape} counted the cadence: dozens of releases a year across
+the core packages, none of them breaking within 1.x. That combination argues for
+a specific posture --- pin exactly in a committed lockfile, upgrade deliberately
+on a schedule rather than reactively, and \textbf{gate the upgrade on the
+evaluation set} (Ch.~\ref{ch:observability}).
+
+That last part is what makes upgrading survivable. A minor version that changes
+nothing in the API can still change behaviour, and the evaluation set is the only
+thing that will tell you before your users do.
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch15-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Every effective control is enforced outside the model. Instructing it to
+      behave is a preference.
+\item Tools run with the user's permissions, checked in \code{wrap\_tool\_call}.
+      Identity comes from context, never from state.
+\item PII redaction is input-only by default.
+\item \textbf{Checkpoints are personal data} --- retention, deletion, review.
+      And a checkpoint is not an audit log.
+\item The two large cost levers are context strategy and topology, both measured
+      earlier in this book. The rest is enforcement.
+\item Alert on the budget, not the invoice.
+\item Syntax validation is not a security boundary. The container and the network
+      policy are.
+\item The grace period must exceed the longest run, and one swallowed
+      cancellation defeats the whole drain.
+\item Pin exactly; upgrade on a schedule; gate the upgrade on the evaluation set.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Write a document containing an injection, put it where a tool will
+fetch it, and watch a naive agent comply. Then add an allowlist and watch it
+fail. Keep both outputs --- the first is what convinces a sceptical colleague.
+
+\textbf{2.} Implement authorisation in \code{wrap\_tool\_call} and confirm the
+tool body never executes for an unpermitted user.
+
+\textbf{3.} Write the checkpoint retention job. Then answer, for your own
+service, how you would satisfy a deletion request today.
+
+\textbf{4.} Add a budget cap that halts a run mid-flight, and confirm the
+checkpoint left behind is resumable.
+
+\textbf{5.} Send SIGTERM to your service with a long run in flight. Time the
+drain. Then swallow a \code{CancelledError} somewhere and time it again.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 12 --- security, cost, deployment.} Injection tests, authorisation
+in the tool wrapper, PII redaction with a retention job, a budget cap, an audit
+log distinct from the checkpoints, a Dockerfile, manifests and a SIGTERM handler.
+
+The contract requires \textbf{both halves} of the injection test: a known
+injection must \emph{succeed} against a naive configuration and \emph{fail}
+against the hardened one. A test that only shows the hardened case passes proves
+nothing about the hardening.
+\end{projectbox}

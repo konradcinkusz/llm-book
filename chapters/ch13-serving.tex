@@ -1,0 +1,489 @@
+\chapter{Serving Agents: FastAPI, Streaming and Concurrency}
+\label{ch:serving}
+
+\begin{quote}\itshape
+This is the chapter the job advertisement was actually about.
+\end{quote}
+
+\noindent
+Everything so far has been an agent. This chapter is about the service around it:
+one process holding hundreds of concurrent conversations, streaming tokens to
+browsers, surviving client disconnections, respecting a provider's rate limit,
+and shutting down without losing work.
+
+It is where Part~I's \code{asyncio} material and Part~III's persistence material
+meet, and it is the point at which a demo becomes a system. Two measurements
+carry it, both run, both free.
+
+\mermaidfig{svc-architecture}{%
+  The deployed shape. The property that makes it work and the hazard it creates
+  are the same property.}{%
+  Deployed architecture: pods, Postgres, provider, queue.}
+
+% ============================================================
+\section{Build the agent once}
+\label{sec:lifespan}
+\index{FastAPI!lifespan}
+\index{FastAPI!dependency injection}
+
+The most common defect in agent services, and the easiest to fix:
+
+\begin{python}[caption={\code{lifespan}, not the request handler}, label={lst:lifespan}]
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with AsyncPostgresSaver.from_conn_string(DB_URL) as checkpointer:
+        await checkpointer.setup()
+        app.state.agent = build_agent(checkpointer)
+        yield
+    # teardown runs after `yield`: pools closed, work drained
+
+
+app = FastAPI(lifespan=lifespan)
+\end{python}
+
+The connection pool, the HTTP client and the compiled graph are all expensive and
+all reusable. Building them per request costs a pool handshake on every call and
+defeats connection reuse entirely.
+
+There is a second reason, specific to this book. Chapter~\ref{ch:persistence}
+established that rehydration requires graph construction to be a repeatable pure
+function. Putting that construction in one \code{build\_agent} called from
+\code{lifespan} is what makes it repeatable --- and the same function is what
+your tests call.
+
+\begin{warning}
+The teardown half is not optional. Code after \code{yield} runs on shutdown, and
+it is where in-flight runs get drained and pools get closed.
+\S\ref{sec:shutdown} is about what happens if you skip it: Kubernetes sends
+SIGTERM, then SIGKILL a grace period later, and anything not checkpointed by then
+is gone.
+\end{warning}
+
+% ============================================================
+\section{How far one process goes}
+\label{sec:measurement-service}
+\index{measurement!service throughput}
+\index{throughput}
+\index{latency!p50 and p95}
+
+Chapter~\ref{ch:asyncio} measured the event loop in-process. This measures a
+service.
+
+\textbf{Method.} A FastAPI application under uvicorn, driven over real HTTP.
+The provider is mocked at a fixed 100\,ms so that what is measured is the
+\emph{service} rather than the model --- a real provider's variance would swamp
+the effect entirely. Three scenarios: every await genuine; one request in twenty
+calling a blocking library for 50\,ms; and that same offender wrapped in
+\code{to\_thread}. Four hundred requests per cell. The script is
+\code{code/ch13/bench\_service.py}.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}rlrrrX@{}}
+\toprule
+\textbf{Conc.} & \textbf{Mode} & \textbf{p50} & \textbf{p95} & \textbf{Throughput} \\
+\midrule
+1 & clean & 103\,ms & 104\,ms & 10/s \\
+10 & clean & 102\,ms & 108\,ms & 97/s \\
+20 & clean & 103\,ms & 110\,ms & 190/s \\
+40 & clean & 103\,ms & 159\,ms & 349/s \\
+\midrule
+40 & blocking & 164\,ms & 329\,ms & 194/s \\
+40 & threaded & 102\,ms & 197\,ms & 332/s \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Two results, and the first is the one to internalise.
+
+\textbf{Latency is flat while throughput is linear.} From one concurrent request
+to forty, p50 did not move: 103\,ms, 102\,ms, 103\,ms, 103\,ms --- against a
+mocked provider latency of 100\,ms. Throughput went 10, 97, 190, 349 per second.
+One process, one thread, thirty-five times the work at the same per-request
+latency. That is the I/O-bound argument from Chapter~\ref{ch:asyncio}, at the
+service level, and it is why an agent service scales on concurrency rather than
+on cores.
+
+\textbf{One request in twenty destroys nearly half the throughput.} The blocking
+row is 5\% of requests doing something wrong. It cost 44\% of throughput
+(349~$\rightarrow$~194/s), raised p50 by 60\% and doubled p95. Wrapping that one
+call in \code{to\_thread} recovered almost all of it (332/s).
+
+\begin{warning}
+Note which requests suffered. The offender was one in twenty, but p50 --- the
+\emph{median}, the typical request --- rose from 103 to 164\,ms. The other
+nineteen requests in twenty were not doing anything wrong and were degraded
+anyway, because the loop they were waiting on was stalled.
+
+That is what makes this defect so hard to find from a dashboard: the symptom
+appears everywhere except on the code that causes it.
+\end{warning}
+
+\begin{note}
+\textbf{A method note, because the first two attempts at this measurement were
+wrong and the errors are instructive.}
+
+The first version ran uvicorn and the load driver on \emph{one event loop}. The
+driver's own work inflated the server's latency, and the clean baseline degraded
+at high concurrency for reasons that had nothing to do with the server. If you
+load-test an async service, the load belongs in another process.
+
+The second version put the server in its own process but pushed concurrency to
+100, where the \emph{client} became the bottleneck --- producing the tell-tale
+absurdity of the blocking scenario showing better throughput than the clean one.
+The script now calibrates itself against a no-op endpoint first, and flags any
+cell within half the harness's own ceiling. The numbers above are all well under
+it.
+
+A load test that does not know its own ceiling is measuring itself.
+\end{note}
+
+% ============================================================
+\section{Streaming to a client}
+\label{sec:sse}
+\index{streaming!server-sent events}
+\index{FastAPI!StreamingResponse}
+
+\begin{python}[caption={The chat endpoint}, label={lst:sse}]
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+
+    async def events():
+        stream = await app.state.agent.astream_events(
+            {"messages": [{"role": "user", "content": req.text}]},
+            version="v3", config=config,
+        )
+        async for message in stream.messages:
+            async for delta in message.text:
+                yield f"data: {json.dumps({'delta': delta})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+\end{python}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+ & \textbf{Server-sent events} & \textbf{WebSocket} \\
+\midrule
+Direction & Server to client only & Both \\
+Transport & Plain HTTP; proxies and load balancers understand it & An upgrade;
+  some infrastructure does not \\
+Reconnection & Built into the browser API & Yours to write \\
+Use when & The client sends a request and receives a stream & The client sends
+  during the stream --- interrupting, correcting \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+SSE is the right default for an agent chat, because the interaction is
+request-then-stream. Reach for a WebSocket when the user needs to speak
+\emph{during} generation.
+
+\begin{warning}
+If streaming works locally and arrives all at once in production, the cause is
+almost always a proxy buffering the response rather than your code. Disable
+buffering for the streaming route --- \code{X-Accel-Buffering: no} for nginx ---
+and check for any middleware that reads the whole body, such as a compression
+layer.
+\end{warning}
+
+% ============================================================
+\section{The client goes away}
+\label{sec:disconnect}
+\index{cancellation!client disconnect}
+
+A user closing a tab mid-response is the normal case, not the exception. The
+disconnect surfaces as \code{CancelledError} inside your generator ---
+Chapter~\ref{ch:cancellation}'s subject, arriving in production.
+
+\mermaidfig{svc-sse-flow}{%
+  A streamed turn, including the disconnect and both policies for it.}{%
+  Sequence of a streamed request with a client disconnect.}
+
+There are two defensible policies.
+
+\textbf{Cancel the run.} The user has gone; stop paying for tokens they will
+never see. The checkpoint keeps whatever completed, so the conversation is
+resumable. This is the right default.
+
+\textbf{Finish in the background.} Let the run complete and checkpoint, so that
+when the user reconnects the answer is already there. Right when the work is
+expensive and likely to be wanted --- and it needs a task you hold a reference
+to, or Chapter~\ref{ch:asyncio}'s garbage-collection trap eats it.
+
+\begin{python}[caption={Cleaning up either way}, label={lst:disconnect}]
+async def events():
+    try:
+        async with aclosing(stream_agent(...)) as stream:
+            async for delta in stream:
+                yield sse(delta)
+    except asyncio.CancelledError:
+        await record_partial()        # cleanup
+        raise                         # ALWAYS re-raise
+    finally:
+        await release_thread_lock(req.thread_id)
+\end{python}
+
+The \code{re-raise} is Chapter~\ref{ch:cancellation}'s rule and it is
+load-bearing here: swallow it and the server will not shut down, because
+\S\ref{sec:shutdown}'s drain waits for tasks that never acknowledge cancellation.
+
+% ============================================================
+\section{One run per thread}
+\label{sec:thread-lock}
+\index{thread\_id@\texttt{thread\_id}!concurrent runs}
+\index{concurrency!per-thread lock}
+\index{troubleshooting!vanished request}
+
+This is the hazard the architecture creates and does not solve, and it is the
+thing most implementations miss.
+
+Because state lives in Postgres, any pod can serve any conversation. That is the
+property that makes pods stateless. It also means two requests for the same
+\code{thread\_id} can run \emph{at the same time}, on the same pod or different
+ones. Here is what that does, measured:
+
+\begin{console}
+UNLOCKED -- final history on the thread:
+    req-2
+    A saw 1 messages
+    B saw 2 messages
+
+LOCKED -- final history on the thread:
+    req-1
+    A saw 1 messages
+    B saw 2 messages
+    req-2
+    A saw 4 messages
+    B saw 5 messages
+\end{console}
+
+\begin{warning}
+\textbf{Without the lock, \code{req-1} is gone.} Not interleaved, not corrupted
+in some visible way --- absent. Both runs loaded the same checkpoint, both ran,
+and the last writer won. One user's message and the entire response to it
+vanished, with no error and no log line.
+
+That is the failure to design against. ``Interleaved state'' undersells it.
+\end{warning}
+
+\mermaidfig{svc-thread-lock}{%
+  The measured outcome, both ways.}{%
+  Two concurrent requests on one thread, with and without a lock.}
+
+An \code{asyncio.Lock} is enough within one process and is not enough across
+pods. The cross-pod answer is a Postgres advisory lock, which costs nothing and
+lives in the database you already have:
+
+\begin{python}[caption={A lock that works across pods}, label={lst:advisory-lock}]
+@asynccontextmanager
+async def thread_lock(pool, thread_id: str):
+    key = hash_to_bigint(thread_id)
+    async with pool.connection() as conn:
+        got = await conn.execute("SELECT pg_try_advisory_lock(%s)", (key,))
+        if not (await got.fetchone())[0]:
+            raise HTTPException(409, "A run is already in progress")
+        try:
+            yield
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
+\end{python}
+
+\begin{note}
+Failing to acquire the lock is where Chapter~\ref{ch:interrupts}'s double-texting
+policy is implemented. Returning 409 is \emph{reject}; waiting is
+\emph{enqueue}; cancelling the holder before acquiring is \emph{interrupt}.
+The lock is the mechanism; the policy is what you do when it is held.
+\end{note}
+
+% ============================================================
+\section{Rate limits and timeouts}
+\label{sec:rate-limits}
+\index{rate limiting}
+
+\begin{python}[caption={A cap the provider will recognise}, label={lst:rate-limit}]
+# Sized so that (limit x replicas) stays under the provider's quota.
+PROVIDER_SEMAPHORE = asyncio.Semaphore(settings.model_concurrency)
+
+
+async def call_model(*args, **kwargs):
+    async with PROVIDER_SEMAPHORE:
+        return await model.ainvoke(*args, **kwargs)
+\end{python}
+
+Chapter~\ref{ch:asyncio} flagged the arithmetic and this is where it comes due: a
+semaphore is per-process, so your effective concurrency is the limit multiplied
+by the number of replicas. Size it by division, and remember that an autoscaler
+changes the multiplier without telling you --- which is a good argument for a
+fixed replica count on the pods that talk to a rate-limited provider.
+
+Retry with exponential backoff \emph{and jitter}; without jitter every rejected
+client retries in lockstep and reproduces the burst that caused the rejection.
+Chapter~\ref{ch:agents}'s model-fallback middleware turns a provider outage into
+degraded service rather than an incident.
+
+\subsection{Three levels}
+\label{sec:timeout-levels}
+\index{timeout!three levels}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Level} & \textbf{Bounds} & \textbf{Set with} \\
+\midrule
+Model call & One provider request & The client's own timeout \\[3pt]
+Node & One node attempt & \code{timeout=} on the node ---
+  \textbf{async nodes only} (Chapter~\ref{ch:persistence}) \\[3pt]
+Run & The whole request & \code{asyncio.timeout} around the invocation \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+All three, and each larger than the one below it. A run timeout alone lets a
+single wedged provider call consume the whole budget; a model timeout alone lets
+an agent loop forever in bounded steps.
+
+\begin{warning}
+The node-level timeout only works on async nodes, and says so rather than
+silently doing nothing. That is not a limitation to work around --- it is the
+reason the ``async all the way down'' rule is a rule. A sync node is a node you
+cannot put a deadline on, in a service whose entire job is bounded latency.
+\end{warning}
+
+% ============================================================
+\section{Blocking tools, and the thread-pool budget}
+\label{sec:blocking-tools}
+\index{thread pool!budget}
+\index{blocking call!in a tool}
+
+\S\ref{sec:measurement-service} priced one blocking call at 44\% of throughput,
+and priced the fix at almost nothing. But \code{to\_thread} is a patch with its
+own ceiling: the default executor has a bounded worker count, and saturating it
+queues calls, which reproduces the original stall one level down and with a less
+obvious symptom.
+
+Order of preference: a native async library; then \code{to\_thread} with an
+executor you sized deliberately; then, for CPU-bound work, a process
+(Chapter~\ref{ch:asyncio}). A tool that cannot be made async and cannot be
+threaded belongs behind the queue in \S\ref{sec:long-running}, not in the request
+path.
+
+% ============================================================
+\section{Work that outlives a request}
+\label{sec:long-running}
+\index{background task}
+\index{queue!outliving a request}
+
+Some agent work takes minutes. It does not belong in a request-response cycle:
+browsers time out, load balancers cut idle connections, and a deploy kills
+whatever was in flight.
+
+Accept, enqueue, return an identifier. A background worker runs the graph with
+the same \code{thread\_id}, checkpointing as it goes, and the client polls or
+subscribes for the result. Because the state is in Postgres, the worker does not
+need to be the process that accepted the request --- which is
+Chapter~\ref{ch:persistence}'s rehydration doing useful work.
+
+\begin{note}
+This is also the honest answer to ``can we just raise the timeout''. You can, and
+you will spend the next quarter raising it again. The queue is the architecture;
+the timeout is the symptom.
+\end{note}
+
+% ============================================================
+\section{Shutdown}
+\label{sec:shutdown}
+\index{graceful shutdown}
+
+Kubernetes sends SIGTERM, waits for the grace period, then sends SIGKILL. What
+happens in between is entirely up to you.
+
+\begin{enumerate}[leftmargin=1.4em,nosep]
+\item Fail the readiness probe, so the load balancer stops sending new work.
+\item Stop accepting new runs; keep serving in-flight ones.
+\item Wait for in-flight runs to reach a checkpoint boundary.
+\item Close pools and exit.
+\end{enumerate}
+
+The grace period must exceed your longest expected run, or step 3 is decorative.
+If your runs are longer than a sensible grace period, that is
+\S\ref{sec:long-running} telling you they belong on a queue.
+
+\begin{warning}
+Every part of this depends on cancellation propagating. A single swallowed
+\code{CancelledError} anywhere in the request path --- Chapter~\ref{ch:cancellation}
+--- turns a graceful drain into a thirty-second wait followed by SIGKILL, and the
+in-flight work is lost exactly as if you had written no shutdown handler at all.
+\end{warning}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch13-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Build the agent, pool and client once in \code{lifespan}. The same
+      \code{build\_agent} function is what makes rehydration repeatable.
+\item \textbf{Measured: latency flat, throughput linear.} 1 to 40 concurrent
+      requests, p50 unchanged at $\approx$103\,ms, throughput 10 to 349/s in one
+      process.
+\item \textbf{Measured: one request in twenty blocking cost 44\% of
+      throughput}, raised median latency 60\%, and degraded the nineteen
+      innocent requests. \code{to\_thread} recovered nearly all of it.
+\item A load test that does not know its own ceiling is measuring itself. Put
+      the server in another process and calibrate against a no-op.
+\item SSE by default; WebSocket when the client must speak during generation.
+      Buffering in production is a proxy, not your code.
+\item On disconnect: cancel by default, finish in the background when the work is
+      expensive. Re-raise \code{CancelledError} either way.
+\item \textbf{Measured: without a per-thread lock, one of two concurrent requests
+      disappears entirely} --- no error, no log line. An \code{asyncio.Lock}
+      within a process; a Postgres advisory lock across pods.
+\item The lock is where the double-texting policy lives.
+\item Semaphores are per-process; divide by replica count. Jitter the backoff.
+\item Three timeout levels, each larger than the one below.
+\item Work longer than a grace period belongs on a queue, not behind a raised
+      timeout.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Run \code{code/ch13/bench\_service.py}. Then change
+\code{OFFENDER\_RATE} to 100 --- one request in a hundred --- and predict the
+throughput loss before re-running.
+
+\textbf{2.} Deliberately reproduce the flawed method: run the load driver in the
+same process as the server and compare. The clean baseline should degrade for no
+reason. Keep both outputs.
+
+\textbf{3.} Reproduce the vanishing request. Two concurrent invocations on one
+\code{thread\_id}, then inspect the history. Then add a lock. This is the test
+that belongs in your CI, not in a notebook.
+
+\textbf{4.} Kill a client mid-stream and confirm your cleanup runs. Then swallow
+the \code{CancelledError} and try to shut the server down.
+
+\textbf{5.} Implement all four double-texting policies over one lock. Decide
+which you would ship, and write down what it costs the user.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 10 --- the service.} The FastAPI application Ops Copilot has been
+heading towards: \code{lifespan} construction, SSE streaming, a disconnect
+policy, a bounded queue between producer and consumer, provider rate limiting,
+three timeout levels, and the per-thread lock.
+
+The test contract in \code{stages/10-service/README.md} leads with the one most
+implementations lack: \textbf{two concurrent requests on one \code{thread\_id}
+must serialise}, asserted by checking that both requests' messages survive. Write
+it without the lock first and watch one of them disappear.
+
+The load test belongs in the repository too. It needs no provider, so it runs in
+CI --- and a regression in throughput is exactly the kind of thing nobody notices
+by reading a diff.
+\end{projectbox}

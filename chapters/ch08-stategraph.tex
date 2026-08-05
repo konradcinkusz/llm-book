@@ -1,0 +1,718 @@
+\chapter{StateGraph: State, Nodes and Edges}
+\label{ch:stategraph}
+
+\begin{quote}\itshape
+Nodes do not return the state. They return a diff, and something else decides
+what that means.
+\end{quote}
+
+\noindent
+This is the chapter the rest of Part~III depends on. LangGraph is not a
+convenience wrapper for calling a model in a loop; it is a state machine executed
+under a bulk-synchronous parallel model borrowed from Pregel. Almost every
+surprising behaviour --- why a parallel write raises, why two nodes in the same
+step cannot see each other, why a checkpoint lands where it does --- falls out of
+that execution model rather than from any particular API.
+
+The load-bearing concept is not the node. It is the \textbf{reducer}: the
+function that decides what happens when an update arrives for a key that already
+has a value. Understand the merge rule and you understand the framework.
+
+Everything below was executed against the pinned versions. Where a result was
+surprising --- and two of them were --- the chapter shows the output rather than
+describing it.
+
+% ============================================================
+\section{When to drop a level}
+\label{sec:when-stategraph}
+\index{StateGraph@\texttt{StateGraph}}
+\index{workflow!when to use a graph}
+\index{agent!versus graph}
+
+Chapter~\ref{ch:agents}'s \api{create\_agent} is the right tool for a loop:
+model decides, calls something, looks at the result, decides again. It is less
+code, it is well tested, and reaching past it because a graph feels more serious
+is a bad trade.
+
+Four symptoms justify the drop, and they are structural rather than aesthetic:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{A branch you want to see.} You can fake routing with an \code{if}
+      inside a tool, but then the branch is invisible to the runtime: it cannot
+      be drawn, traced, or resumed at the branch point.
+\item \textbf{Genuine parallelism.} Two independent analyses of the same input
+      should run at once. An agent loop's only ordering primitive is sequence.
+\item \textbf{A join.} Once you have parallelism you need somewhere for results
+      to meet, with a defined merge rule. That is a graph construct.
+\item \textbf{A deterministic step between model calls.} Validation, a database
+      write, a policy check --- work that must happen, in order, whatever the
+      model thinks.
+\end{itemize}
+
+Absent one of those, stay with \api{create\_agent}. And remember
+Chapter~\ref{ch:landscape}'s finding: dropping a level is not a rewrite, because
+\api{create\_agent} already returns a \api{CompiledStateGraph}. You are moving
+from a builder to the thing it builds.
+
+% ============================================================
+\section{Supersteps}
+\label{sec:supersteps}
+\index{superstep}
+\index{Pregel@\texttt{Pregel}}
+\index{workflow!execution model}
+\index{state!merge boundary}
+
+Execution is not ``walk the graph''. It is a sequence of \emph{supersteps}, and
+internalising that early explains most of what follows.
+
+A superstep has three phases:
+
+\begin{enumerate}[leftmargin=1.4em]
+\item Every node with pending input runs. Within a superstep these runs are
+      independent and may be concurrent.
+\item Their returned updates are collected. They are \emph{not} applied yet.
+\item The superstep ends: updates are merged through the reducers, the new state
+      becomes visible, and --- with a checkpointer configured --- a checkpoint is
+      taken.
+\end{enumerate}
+
+\mermaidfig{lg-superstep}{%
+  Two supersteps. The boundary is where updates merge, where state becomes
+  visible, and where Chapter~\ref{ch:persistence} takes its checkpoint.}{%
+  Supersteps and the merge boundary, with measured counter values.}
+
+That is a claim, so here it is running. Three nodes: \code{a} and \code{b} are
+both reachable from the start and therefore share a superstep; \code{c} runs
+after both.
+
+\begin{python}[caption={Supersteps, observed}, label={lst:superstep}]
+class S(TypedDict):
+    counter: Annotated[int, operator.add]
+    seen: Annotated[list, operator.add]
+
+
+def a(s): return {"counter": 1, "seen": [f"a saw counter={s['counter']}"]}
+def b(s): return {"counter": 1, "seen": [f"b saw counter={s['counter']}"]}
+def c(s): return {"seen": [f"c saw counter={s['counter']}"]}
+
+
+g = StateGraph(S)
+for name, fn in [("a", a), ("b", b), ("c", c)]:
+    g.add_node(name, fn)
+g.add_edge(START, "a")
+g.add_edge(START, "b")
+g.add_edge("a", "c")
+g.add_edge("b", "c")
+g.add_edge("c", END)
+
+for step in g.compile().stream({"counter": 0, "seen": []}, stream_mode="updates"):
+    print(step)
+\end{python}
+
+\begin{console}
+{'a': {'counter': 1, 'seen': ['a saw counter=0']}}
+{'b': {'counter': 1, 'seen': ['b saw counter=0']}}
+{'c': {'seen': ['c saw counter=2']}}
+\end{console}
+
+\code{a} and \code{b} both saw \code{counter=0}. Neither saw the other's write,
+because both writes were still buffered. \code{c}, one superstep later, saw
+\code{2} --- both updates, merged at the boundary.
+
+\begin{warning}
+The practical consequence: \emph{a value written in a superstep is not visible to
+anything else in that superstep}. Code that writes a field and then expects a
+sibling node to observe it is wrong, and it is wrong in a way that reads like a
+race condition rather than a design error. It is not a race. It is deterministic,
+and it will behave identically every time.
+\end{warning}
+
+\begin{dotnetbox}
+If you have used Durable Functions or Temporal, this is the same shape: work
+proceeds in committed steps, state is durable at each boundary, and the boundary
+is where you can stop and resume. The Pregel heritage adds one thing those do not
+have --- a whole cohort of nodes running per step rather than a single linear
+history. Chapter~\ref{ch:persistence} is where the durability half pays off.
+\end{dotnetbox}
+
+% ============================================================
+\section{State and reducers}
+\label{sec:state-reducers}
+\index{reducer}
+\index{state!schema}
+\index{Annotated@\texttt{Annotated}}
+\index{reducer!operator.add}
+
+The state schema is a \code{TypedDict}, and each key optionally carries a reducer
+through \code{Annotated}:
+
+\begin{python}[caption={A state schema, annotated}, label={lst:state-schema}]
+import operator
+from typing import Annotated
+from typing_extensions import TypedDict
+
+from langgraph.graph.message import add_messages
+
+
+class State(TypedDict):
+    messages: Annotated[list, add_messages]        # merged, deduplicated by id
+    documents: Annotated[list[str], operator.add]  # appended
+    attempts: int                                  # OVERWRITTEN -- no reducer
+\end{python}
+
+Two rules cover the whole mechanism:
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{A node returns a partial update, never the whole state.} Returning
+      \code{\{"documents": [...]\}} says nothing about \code{messages}.
+\item \textbf{Without a reducer, a key is overwritten. With one, it is merged.}
+\end{enumerate}
+
+\subsection{Why this matters more than it sounds}
+\label{sec:parallel-write}
+\index{InvalidUpdateError@\texttt{InvalidUpdateError}}
+
+For a single-threaded path, overwrite versus merge is a mild preference. The
+moment two nodes share a superstep it becomes an error:
+
+\begin{python}[caption={Two nodes, one unreduced key}, label={lst:invalid-update}]
+class Bad(TypedDict):
+    value: str                                   # no reducer
+    log: Annotated[list, operator.add]           # reducer
+
+
+def a(s): return {"value": "from-a", "log": ["a"]}
+def b(s): return {"value": "from-b", "log": ["b"]}
+# ... both wired from START ...
+graph.invoke({"value": "", "log": []})
+\end{python}
+
+\begin{console}
+InvalidUpdateError: At key 'value': Can receive only one value per step.
+Use an Annotated key to handle multiple values.
+\end{console}
+
+Note which key it complains about. \code{log} was fine --- it had a reducer, and
+the two lists merged. \code{value} had none, and the runtime refuses to silently
+pick a winner.
+
+\mermaidfig{lg-reducer-merge}{%
+  The same fan-out over two keys. The error is a design feature: the alternative
+  is a silent, order-dependent choice between two values.}{%
+  Parallel updates to a key with and without a reducer.}
+
+\begin{note}
+This error is a good one. A framework that quietly kept the last write would give
+you a graph whose output depended on scheduling order, and you would find out in
+production. Getting \api{InvalidUpdateError} on your first fan-out is the
+framework telling you that you have not yet decided what merging means for that
+field --- which is a real design question, not a formality.
+\end{note}
+
+\subsection{\texorpdfstring{\code{add\_messages}}{add-messages} is not just append}
+\label{sec:add-messages}
+\index{add\_messages@\texttt{add\_messages}}
+\index{RemoveMessage@\texttt{RemoveMessage}}
+
+The message reducer does three distinct things, and only the first is obvious:
+
+\begin{python}[caption={Three behaviours of one reducer}, label={lst:add-messages}]
+left = [HumanMessage(content="hello", id="1"), AIMessage(content="hi", id="2")]
+
+add_messages(left, [AIMessage(content="more", id="3")])
+add_messages(left, [AIMessage(content="CORRECTED", id="2")])
+add_messages(left, [RemoveMessage(id="1")])
+\end{python}
+
+\begin{console}
+append    [('1','hello'), ('2','hi'), ('3','more')]
+by id     [('1','hello'), ('2','CORRECTED')]      <- replaced, not appended
+remove    [('2','hi')]                            <- message 1 deleted
+\end{console}
+
+It appends new messages, \textbf{replaces} an existing message when the id
+matches, and deletes one when handed a \api{RemoveMessage}. Messages without an
+id are given one automatically.
+
+That id-keyed behaviour is not decoration. It is what makes the reducer safe
+under replay and across subgraph boundaries, which \S\ref{sec:subgraphs} shows
+the hard way.
+
+\subsection{Writing your own}
+\label{sec:custom-reducer}
+\index{reducer!custom}
+
+A reducer is an ordinary function of two arguments --- the current value and the
+update --- returning the new value:
+
+\begin{python}[caption={A reducer that keeps the best few by score}, label={lst:custom-reducer}]
+def top_k_by_score(current: list[dict], update: list[dict]) -> list[dict]:
+    """Merge retrieved documents, keeping the five highest-scoring."""
+    merged = {d["id"]: d for d in current}
+    for d in update:
+        if d["id"] not in merged or d["score"] > merged[d["id"]]["score"]:
+            merged[d["id"]] = d
+    return sorted(merged.values(), key=lambda d: -d["score"])[:5]
+
+
+class State(TypedDict):
+    docs: Annotated[list[dict], top_k_by_score]
+\end{python}
+
+Three properties a reducer must have, none of which the framework enforces:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \textbf{It must not mutate its arguments.} Build and return a new value.
+\item \textbf{It should be order-independent} where the updates come from a
+      parallel fan-out, because the order they arrive in is not yours to control.
+\item \textbf{It must tolerate being run again.} Chapter~\ref{ch:persistence}
+      replays nodes, so a reducer that is not idempotent under a repeated
+      identical update will drift.
+\end{itemize}
+
+\begin{exercisebox}
+The reducer above is a pure function of two arguments. Unit-test it directly ---
+no graph, no model, no async. That is the cheapest test in a LangGraph codebase
+and the one most often skipped, because people reach for an end-to-end graph test
+instead. Write the order-independence case explicitly: \code{f(f(x, a), b)}
+against \code{f(f(x, b), a)}.
+\end{exercisebox}
+
+% ============================================================
+\section{Input, output and private state}
+\label{sec:schemas}
+\index{state!input and output schemas}
+\index{state!private channels}
+
+The state a graph works with is usually wider than what a caller should send or
+see. Scratch space, retry counters, intermediate documents --- all necessary
+internally, all noise at the boundary. Three schemas separate the concerns:
+
+\begin{python}[caption={Narrowing the public surface}, label={lst:schemas}]
+class Input(TypedDict):
+    question: str
+
+
+class Output(TypedDict):
+    answer: str
+
+
+class Internal(TypedDict):
+    question: str
+    answer: str
+    scratch: str                          # private
+    notes: Annotated[list, operator.add]  # private
+
+
+graph = StateGraph(Internal, input_schema=Input, output_schema=Output).compile()
+graph.invoke({"question": "why?"})
+\end{python}
+
+\begin{console}
+{'answer': 're: why? (working...)'}
+\end{console}
+
+Only \code{answer} came back. \code{scratch} and \code{notes} did their job and
+stayed inside. For a graph you are exposing over HTTP
+(Chapter~\ref{ch:serving}) that is the difference between a response contract and
+a memory dump.
+
+\begin{warning}
+Output is filtered; \textbf{input is not validated}. Passing a key that is not in
+the input schema raises nothing --- the call is accepted without complaint. If
+you need input validation, do it at your API boundary with Pydantic
+(Chapter~\ref{ch:python}) rather than expecting the graph to do it for you.
+\end{warning}
+
+% ============================================================
+\section{Nodes and edges}
+\label{sec:nodes-edges}
+\index{edge!conditional}
+\index{node}
+\index{edge!static}
+
+A node is a callable taking state and returning a partial update. An edge says
+what runs next. \code{START} and \code{END} are the two sentinels, and they are
+ordinary strings --- \code{'\_\_start\_\_'} and \code{'\_\_end\_\_'} --- which is
+why they appeared in Chapter~\ref{ch:landscape}'s node listing.
+
+\begin{python}[caption={A graph with a retry loop}, label={lst:conditional-edge}]
+def should_retry(state: State) -> str:
+    if state["attempts"] < 3 and not good_enough(state):
+        return "retrieve"
+    return END
+
+
+builder = StateGraph(State)
+builder.add_node("retrieve", retrieve)
+builder.add_node("generate", generate)
+builder.add_edge(START, "retrieve")
+builder.add_edge("retrieve", "generate")
+builder.add_conditional_edges("generate", should_retry, ["retrieve", END])
+\end{python}
+
+The third argument to \api{add\_conditional\_edges} is the list of possible
+destinations. It is optional at run time and worth always supplying, because it
+is what lets the graph be drawn and validated --- the same principle that
+\S\ref{sec:command} turns into a genuine trap.
+
+\begin{note}
+A node is a plain function of \code{state -> dict}. That is the testing seam for
+the whole framework: no graph, no runtime, no mocking.
+Chapter~\ref{ch:observability} builds on it, but you do not need to wait --- a
+node with real logic in it should have a unit test today.
+\end{note}
+
+% ============================================================
+\section{Command: update and jump together}
+\label{sec:command}
+\index{Command@\texttt{Command}}
+
+A conditional edge chooses the next node. It cannot also write to state. When you
+need both --- and routing usually does, because you want to record \emph{why} you
+routed --- \api{Command} does them in one return:
+
+\begin{python}[caption={Routing that records its own decision}, label={lst:command}]
+from typing import Literal
+from langgraph.types import Command
+
+
+def router(state) -> Command[Literal["billing", "technical"]]:
+    destination = classify(state["messages"][-1].content)
+    return Command(
+        update={"route": destination, "trail": ["router"]},
+        goto=destination,
+    )
+\end{python}
+
+\begin{console}
+{'route': 'billing', 'trail': ['router', 'billing']}
+\end{console}
+
+\subsection{The annotation is load-bearing}
+\label{sec:command-annotation}
+\index{Command@\texttt{Command}!return annotation}
+\index{troubleshooting!missing edge}
+
+That \code{Command[Literal[...]]} return annotation looks like documentation. It
+is not. Without it the graph runs correctly and \emph{draws itself wrongly}:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Node signature} & \textbf{Edges reported by the compiled graph} \\
+\midrule
+returns \code{Command} &
+  start~$\rightarrow$~router, router~$\rightarrow$~end \\[4pt]
+returns \code{Command[Literal[...]]} &
+  start~$\rightarrow$~router, router~$\rightarrow$~billing,
+  billing~$\rightarrow$~end \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+Both versions execute identically and produce the same answer. But the first
+one's drawn graph claims the router goes straight to the end, and the edge to
+\code{billing} does not appear at all.
+
+That matters more than it first seems. The diagram is what you show a colleague,
+paste into a design document, and stare at when debugging at eleven at night. A
+visualisation that silently omits an edge is worse than no visualisation.
+\textbf{Always annotate the return type of a node that returns a \api{Command}.}
+\end{warning}
+
+\subsection{Crossing upwards}
+\label{sec:command-parent}
+\index{Command@\texttt{Command}!PARENT}
+
+Setting \code{graph=Command.PARENT} on a \api{Command} hands control from inside
+a subgraph to a node in the parent. That is the mechanism behind the swarm
+pattern in Chapter~\ref{ch:multi-agent}: agents transferring control directly
+rather than reporting back to a supervisor.
+
+% ============================================================
+\section{Send: dynamic fan-out}
+\label{sec:send}
+\index{Send@\texttt{Send}}
+\index{fan-out}
+\index{map-reduce}
+
+Every edge so far was fixed at build time. \api{Send} creates edges at run time,
+one per item, each carrying its own input:
+
+\begin{python}[caption={Map-reduce over a list}, label={lst:send}]
+from langgraph.types import Send
+
+
+class State(TypedDict):
+    docs: list[str]
+    results: Annotated[list[str], operator.add]   # the "reduce" half
+
+
+def fan_out(state) -> list[Send]:
+    return [Send("analyse", {"doc": d}) for d in state["docs"]]
+
+
+def analyse(state) -> dict:
+    return {"results": [state["doc"].upper()]}    # note: state["doc"]
+
+
+builder.add_conditional_edges("plan", fan_out, ["analyse"])
+\end{python}
+
+\begin{console}
+{'docs': ['a', 'b', 'c'], 'results': ['A', 'B', 'C']}
+\end{console}
+
+\mermaidfig{lg-send-fanout}{%
+  One node declaration, three run-time instances, one merged result. The number
+  of instances is a property of the data, not of the graph.}{%
+  Dynamic fan-out with Send and a merging reducer.}
+
+Two details matter.
+
+\textbf{Each instance receives the payload you sent, not the shared state.}
+\code{analyse} reads \code{state["doc"]} --- the dictionary given to that
+\api{Send} --- rather than \code{state["docs"]}. This is the most common
+confusion with \api{Send}, and it is worth writing the target node's signature
+deliberately, as though it were a separate function taking its own arguments,
+because that is what it is.
+
+\textbf{The reduce half is the reducer.} \code{results} carries
+\code{operator.add}, which is why three parallel instances merge instead of
+raising \api{InvalidUpdateError} (\S\ref{sec:parallel-write}). Remove the
+annotation and the fan-out breaks the moment there is more than one document.
+
+\begin{dotnetbox}
+\api{Send} is closest to \code{Parallel.ForEach} over a partitioned input, or a
+fan-out in TPL Dataflow --- with the difference that each branch is checkpointed
+independently, so a crash mid-fan-out resumes without re-running the branches
+that already finished. That property is Chapter~\ref{ch:persistence}'s subject
+and it is the reason to prefer \api{Send} over an \code{asyncio.gather} inside a
+single node.
+\end{dotnetbox}
+
+\begin{note}
+\textbf{\api{Send} versus \code{gather} inside one node.} Both give parallelism.
+The difference is the granularity of everything else: with \api{Send} each branch
+is a node, so each gets its own span in a trace, its own retry policy, its own
+checkpoint, and its own entry in the stream. With \code{gather} the whole fan-out
+is one opaque node.
+
+Use \code{gather} for a handful of quick, uninteresting calls inside one logical
+step. Use \api{Send} when the branches are the work.
+\end{note}
+
+% ============================================================
+\section{Subgraphs}
+\label{sec:subgraphs}
+\index{subgraph}
+
+A compiled graph is a node. That is the whole composition story:
+
+\begin{python}[caption={A graph used as a node}, label={lst:subgraph}]
+child = child_builder.compile()
+
+parent = StateGraph(ParentState)
+parent.add_node("p1", p1)
+parent.add_node("child", child)      # a compiled graph, used directly
+parent.add_node("p2", p2)
+\end{python}
+
+Keys present in both schemas are shared: the parent's value flows in, and the
+subgraph's final value flows back. Keys only in the child's schema stay private
+and never appear in the parent's state.
+
+\subsection{The trap}
+\label{sec:subgraph-duplication}
+\index{subgraph!reducer duplication}
+\index{troubleshooting!duplicated state}
+
+Here is the chapter's second surprise. A parent and a child share one key
+annotated \code{operator.add}, and the parent writes to it before calling the
+child. The parent node appends \code{'parent'}; the child's node appends
+\code{'sub'}. The same graph, run twice, with only the reducer changed:
+
+\begin{console}
+operator.add  ->  ['parent', 'parent', 'sub']       <-- duplicated
+add_messages  ->  ['parent', 'sub']                 <-- correct
+\end{console}
+
+With \code{operator.add}, \code{parent} appears \textbf{twice}.
+
+The mechanism is worth following, because it is not a bug and it will happen to
+you. The subgraph is invoked with the parent's current state, so its accumulator
+starts as \code{['parent']}. Its own node appends, making its final value
+\code{['parent', 'sub']}. That final value is then merged back into the parent as
+the subgraph node's update --- and \code{operator.add} appends it to what the
+parent already had.
+
+\code{add\_messages} is immune because it merges \emph{by id}
+(\S\ref{sec:add-messages}). The repeated entry has the same id, so it replaces
+rather than appends.
+
+\begin{warning}
+\textbf{An append-only reducer on a key shared across a subgraph boundary
+duplicates the parent's existing content.} The failure is silent, proportional to
+how much was already there, and diagnosed by staring at a list wondering why the
+first half looks familiar.
+
+Three ways out, in order of preference: use an id-keyed reducer like
+\api{add\_messages}; keep the accumulator private to one level and pass a summary
+across the boundary; or give the subgraph a differently-named key and merge
+deliberately in the parent.
+\end{warning}
+
+\subsection{Seeing inside}
+\label{sec:subgraph-streaming}
+\index{subgraph!streaming}
+
+By default a subgraph's internal steps do not appear in the parent's stream ---
+you see the child node's aggregate update and nothing else. Ask to see through
+it:
+
+\begin{python}[caption={Streaming through a subgraph boundary}, label={lst:subgraph-stream}]
+for namespace, update in graph.stream(inp, stream_mode="updates", subgraphs=True):
+    print(namespace, update)
+\end{python}
+
+\begin{console}
+()                      {'p1': {'trail': ['parent']}}
+('child:77f6f2ba-...',) {'s1': {'trail': ['sub'], 'inner_only': 'x'}}
+()                      {'child': {'trail': ['parent', 'sub']}}
+()                      {'p2': {'trail': ['parent-after']}}
+\end{console}
+
+The namespace tuple tells you which level each update came from, and the third
+line is the duplication above, caught in the act. This is the first debugging
+tool to reach for when a composed graph misbehaves, and
+Chapter~\ref{ch:interrupts} builds the streaming surface on top of it.
+
+% ============================================================
+\section{State, context and config}
+\label{sec:state-context-config}
+\index{context\_schema@\texttt{context\_schema}}
+\index{Runtime@\texttt{Runtime}}
+\index{Runtime@\texttt{Runtime}!store and writer}
+
+Three things get passed into a running graph and they are routinely confused. The
+distinction is worth getting right once.
+
+\mermaidfig{lg-state-context-config}{%
+  The three scopes. If it changes as the graph runs, it is state; if it is a fact
+  about who is calling, it is context; if it is about how the run executes, it is
+  config.}{%
+  State versus runtime context versus config.}
+
+\begin{python}[caption={Runtime context, typed}, label={lst:runtime}]
+from dataclasses import dataclass
+from langgraph.runtime import Runtime
+
+
+@dataclass
+class Ctx:
+    user_id: str
+    tenant: str
+
+
+def node(state: State, runtime: Runtime[Ctx]) -> dict:
+    return {"out": f"user={runtime.context.user_id}"}
+
+
+graph = StateGraph(State, context_schema=Ctx).compile()
+graph.invoke({"out": ""}, context=Ctx(user_id="u42", tenant="acme"))
+\end{python}
+
+\begin{console}
+{'out': 'user=u42 tenant=acme'}
+\end{console}
+
+A node opts in by declaring a second parameter. \api{Runtime} also carries
+\code{store} (Chapter~\ref{ch:persistence}), \code{stream\_writer}
+(Chapter~\ref{ch:interrupts}) and \code{previous}.
+
+\begin{versionbox}
+Older material passes runtime facts inside the \code{configurable} dictionary and
+reads them back out of the config inside each node. That still works, and it is
+untyped, unvalidated and undiscoverable. A declared context schema plus the
+\code{context=} argument is the current form, and it is the one to write.
+
+Config retains a real job: \code{thread\_id}, which is the checkpoint key
+(Chapter~\ref{ch:persistence}), plus the recursion limit, callbacks and tags.
+Those are properties of the \emph{run}, not of the domain.
+\end{versionbox}
+
+\begin{warning}
+Do not put user identity in state. State is checkpointed, so it is written to
+your database and it survives; it is also mutable by any node. A user id in state
+is a permission that can be overwritten mid-run and then persisted. Identity
+belongs in context, which is immutable for the run, and authorisation belongs in
+code --- Chapter~\ref{ch:security} makes that argument properly.
+\end{warning}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch8-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Execution proceeds in supersteps. Nodes in the same superstep cannot see
+      each other's writes; updates merge at the boundary, which is also where the
+      checkpoint is taken.
+\item Nodes return partial updates. Without a reducer a key is overwritten; two
+      parallel writes to an unreduced key raise \api{InvalidUpdateError}, which
+      is the framework refusing to pick a winner for you.
+\item \api{add\_messages} appends, replaces by id, and honours
+      \api{RemoveMessage}. The id-keying is what makes it safe under replay and
+      across subgraph boundaries.
+\item Custom reducers are plain two-argument functions, and they are the cheapest
+      thing in the codebase to unit-test.
+\item Input and output schemas narrow the public surface. Output is filtered;
+      input is not validated.
+\item Annotate the return type of any node returning a \api{Command}, or the
+      drawn graph omits the edge.
+\item \api{Send} fans out at run time, one instance per item, each receiving its
+      own payload rather than the shared state. The reducer is the reduce half.
+\item An append-only reducer shared across a subgraph boundary duplicates the
+      parent's content. Use an id-keyed reducer or keep the accumulator private.
+\item State changes and is checkpointed; context is immutable per run; config is
+      how the run executes. Identity goes in context, never in state.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Reproduce \api{InvalidUpdateError}. Two nodes from \code{START}, both
+writing one unreduced key. Then add \code{Annotated[list, operator.add]} and
+watch it pass. Write the failing version first --- a fix nobody watched fail is a
+fix nobody has verified.
+
+\textbf{2.} Run Listing~\ref{lst:superstep} and predict the output before you
+look. If you expected \code{b} to see \code{counter=1}, re-read
+\S\ref{sec:supersteps}; that expectation will cost you a day later in the book.
+
+\textbf{3.} Build the subgraph duplication from \S\ref{sec:subgraph-duplication}
+and confirm it. Then fix it three ways --- id-keyed reducer, private accumulator,
+renamed key --- and decide which you would defend in review.
+
+\textbf{4.} Take a node returning \api{Command} without a return annotation,
+print the graph's Mermaid rendering, add the annotation, print it again. Keep
+both diagrams side by side as a reminder.
+
+\textbf{5.} Write a \api{Send} fan-out over ten documents where one raises. What
+happens to the other nine? Predict first, then measure --- and note the answer
+for Chapter~\ref{ch:persistence}, which is where you get to do something about
+it.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 05 --- the explicit graph.} Ops Copilot is rebuilt from
+\api{create\_agent} into a \api{StateGraph}, and the thing that justifies the
+rewrite is a \api{Send} fan-out: analysing every retrieved document in parallel
+and merging the findings through a reducer.
+
+The test contract in \code{stages/05-stategraph/README.md} requires three things:
+the graph reaches the same answers as stage 04 on the same fixtures; the
+parallel-write error is demonstrated \emph{before} the reducer is added; and the
+reducer is unit-tested on its own, as an ordinary function, with no graph
+anywhere near it.
+\end{projectbox}

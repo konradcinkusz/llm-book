@@ -1,0 +1,278 @@
+\chapter{API Cheat Sheet}
+\label{app:cheatsheet}
+
+\noindent
+Imports, signatures and the patterns that recur. Written to be the page you keep
+open.
+
+% ============================================================
+\section{Imports}
+\label{sec:appB-imports}
+\index{cheat sheet!imports}
+\index{packages!import paths}
+
+The single most common thing to get wrong after 1.0 moved things.
+
+\begin{python}[caption={Where everything lives}, label={lst:appB-imports}]
+# Agents and middleware
+from langchain.agents import create_agent
+from langchain.agents.middleware import (
+    AgentMiddleware, HumanInTheLoopMiddleware, ModelCallLimitMiddleware,
+    PIIMiddleware, SummarizationMiddleware, ContextEditingMiddleware,
+    dynamic_prompt, wrap_tool_call,
+)
+
+# Models, messages, tools
+from langchain.chat_models import init_chat_model
+from langchain.tools import tool
+from langchain_core.messages import (
+    AIMessage, HumanMessage, SystemMessage, ToolMessage, RemoveMessage,
+)
+from langchain_core.messages.utils import count_tokens_approximately
+
+# Graphs
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.types import Command, Send, interrupt, RetryPolicy, CachePolicy
+from langgraph.errors import GraphRecursionError, InvalidUpdateError, NodeTimeoutError
+from langgraph.managed import RemainingSteps
+from langgraph.runtime import Runtime
+from langgraph.func import entrypoint, task
+
+# Persistence
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.store.memory import InMemoryStore
+
+# Evaluation
+from langsmith import evaluate, aevaluate, traceable
+\end{python}
+
+% ============================================================
+\section{asyncio}
+\label{sec:appB-asyncio}
+\index{cheat sheet!asyncio}
+\index{asyncio!summary}
+
+\begin{python}[caption={The patterns}, label={lst:appB-async}]
+async with asyncio.TaskGroup() as tg:          # structured; cancels siblings
+    tg.create_task(work())
+
+await asyncio.gather(*coros)                   # ordered results, orphans siblings
+await asyncio.gather(*coros, return_exceptions=True)
+
+async with asyncio.timeout(30): ...            # composes
+sem = asyncio.Semaphore(5)                     # per process -- divide by replicas
+q = asyncio.Queue(maxsize=100)                 # maxsize IS the backpressure
+await asyncio.to_thread(blocking_io)           # blocking I/O only
+async with aclosing(agen) as stream: ...       # close what you abandon
+
+try:
+    await work()
+except asyncio.CancelledError:
+    await cleanup()
+    raise                                      # ALWAYS
+\end{python}
+
+% ============================================================
+\section{LangChain}
+\label{sec:appB-langchain}
+\index{cheat sheet!LangChain}
+\index{middleware!ordering}
+
+\begin{python}[caption={Agent, tools, structured output}, label={lst:appB-lc}]
+agent = create_agent(
+    model="anthropic:claude-sonnet-4-5",
+    tools=[...], system_prompt="...", middleware=[...],
+    response_format=Ticket, checkpointer=cp, store=store,
+    context_schema=Ctx, name="support",
+)
+
+@tool
+async def search_orders(customer_id: str, limit: int = 10) -> list[dict]:
+    """Find a customer's recent orders by customer id."""
+
+response.text, response.content_blocks, response.tool_calls, response.usage_metadata
+model.with_fallbacks([backup]); model.with_retry()
+\end{python}
+
+\textbf{Middleware hook order}, measured, with \code{middleware=[A, B]}:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\code{before\_*} & declaration order: A, then B \\
+\code{wrap\_*} & nested, first outermost: A wraps B wraps the call \\
+\code{after\_*} & \textbf{reverse}: B, then A \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Agent-level hooks run once per run; model-level hooks once per iteration.
+
+\begin{warning}
+Signatures that circulate wrongly: the call limit is
+\code{(thread\_limit, run\_limit, exit\_behavior)} with \textbf{no}
+\code{limit=}; summarisation is \code{trigger=("tokens", N)} or
+\code{("messages", N)} or \code{("fraction", 0.8)} with \textbf{no}
+\code{max\_tokens\_before\_summary}; PII redaction is \textbf{input-only} by
+default.
+\end{warning}
+
+% ============================================================
+\section{LangGraph}
+\label{sec:appB-langgraph}
+\index{cheat sheet!LangGraph}
+\index{reducer}
+\index{checkpointer}
+
+\begin{python}[caption={State, graph, persistence}, label={lst:appB-lg}]
+class State(TypedDict):
+    messages: Annotated[list, add_messages]         # merge by id
+    docs: Annotated[list[str], operator.add]        # append
+    attempts: int                                    # OVERWRITE
+
+builder = StateGraph(State, context_schema=Ctx,
+                     input_schema=In, output_schema=Out)
+builder.add_node("n", fn, retry_policy=RetryPolicy(max_attempts=5),
+                 cache_policy=CachePolicy(ttl=60), timeout=30)  # async nodes only
+builder.add_conditional_edges("n", route, ["a", "b", END])
+graph = builder.compile(checkpointer=cp, store=store, cache=cache)
+
+def router(s) -> Command[Literal["billing"]]:        # annotation is LOAD-BEARING
+    return Command(update={...}, goto="billing")
+
+def fan(s) -> list[Send]:
+    return [Send("worker", {"doc": d}) for d in s["docs"]]
+
+cfg = {"configurable": {"thread_id": "t1"}}
+graph.invoke(inp, config=cfg, context=Ctx(...), durability="sync")
+graph.get_state(cfg); graph.get_state_history(cfg); graph.update_state(cfg, {...})
+graph.invoke(Command(resume=decision), config=cfg)
+
+async for ns, upd in graph.astream(inp, stream_mode="updates", subgraphs=True): ...
+stream = await agent.astream_events(inp, version="v3")
+async for m in stream.messages:
+    async for delta in m.text: ...
+\end{python}
+
+\begin{warning}
+On a v3 tool call, \code{output} and \code{completed} are \textbf{mutating
+attributes, not awaitables}. Iterate \code{output\_deltas} to exhaustion, then
+read them.
+\end{warning}
+
+% ============================================================
+\section{.NET to Python}
+\label{sec:appB-dotnet}
+\index{.NET!concept mapping}
+\index{cheat sheet!.NET}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{.NET} & \textbf{Python} & \textbf{Watch out} \\
+\midrule
+\code{async Task<T>} & \code{async def} & The coroutine is \textbf{cold} \\
+\code{Task.Run} & \code{create\_task} & Schedules; body waits for the next yield \\
+\code{Task.WhenAll} & \code{gather} & Does not cancel siblings on error \\
+--- & \code{TaskGroup} & Does \\
+\code{CancellationToken} & \code{CancelledError} & Injected, not polled;
+  re-raise \\
+\code{SemaphoreSlim} & \code{Semaphore} & Per process \\
+\code{IAsyncEnumerable} & \code{async def ... yield} & Close it \\
+\code{await using} & \code{async with} & \\
+\code{Channel<T>} & \code{Queue(maxsize=n)} & Bounded unless proven otherwise \\
+\code{Task.Delay} & \code{asyncio.sleep} & \code{time.sleep} blocks the loop \\
+\code{ConfigureAwait} & --- & No equivalent, none needed \\
+ASP.NET middleware & agent middleware & \code{handler} is \code{next} \\
+Durable Functions & LangGraph & Node = replay boundary \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================
+\section{Measurements}
+\label{sec:appB-measurements}
+\index{measurement!summary}
+\index{measurement!what is unrun}
+
+Run, reproducible, no provider required.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Concurrency} (Ch.~\ref{ch:asyncio}) & 20 requests, 100\,ms each & \\
+\midrule
+Sequential & 2.039\,s & 20.4$\times$ \\
+\code{gather} & 0.126\,s & 1.3$\times$ \\
+\code{TaskGroup} & 0.125\,s & 1.2$\times$ \\
+Capped at 5 & 0.421\,s & 4.2$\times$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Service} (Ch.~\ref{ch:serving}) & p50 / p95 & Throughput \\
+\midrule
+1 concurrent, clean & 103 / 104\,ms & 10/s \\
+40 concurrent, clean & 103 / 159\,ms & 349/s \\
+40, one-in-20 blocking & 164 / 329\,ms & 194/s \\
+40, same via \code{to\_thread} & 102 / 197\,ms & 332/s \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Context} (Ch.~\ref{ch:context}) & Billed tokens, 10 turns & vs naive \\
+\midrule
+Naive & 43,510 & 1.00$\times$ \\
+Projected tool results & 6,910 & \textbf{0.16}$\times$ \\
+Summarised history & 28,180 & 0.65$\times$ \\
+Both & 6,910 & 0.16$\times$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Topology} (Ch.~\ref{ch:multi-agent}) & Model calls & Context, indicative \\
+\midrule
+Single agent & 2 & 1.0$\times$ \\
+Pipeline (3) & 3 & 1.4$\times$ \\
+Swarm (3 hops) & 3 & 1.4$\times$ \\
+Orchestrator + 3 & 5 & 2.3$\times$ \\
+Supervisor (2) & 5 & 2.8$\times$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\textbf{Deliberately empty, because these have not been run.} Filling them with
+plausible numbers would be worse than leaving them blank.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Multi-agent \emph{quality} & --- \\
+Tool-selection accuracy & --- \\
+Cache hit rate & --- \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+All three need a provider budget. Every claim resting on them is labelled as
+judgement where it appears.
+\end{warning}

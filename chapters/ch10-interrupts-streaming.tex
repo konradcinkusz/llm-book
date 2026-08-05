@@ -1,0 +1,581 @@
+\chapter{Interrupts, Time Travel and Streaming}
+\label{ch:interrupts}
+
+\begin{quote}\itshape
+A graph paused for approval is not a process holding a thread. It is a row.
+\end{quote}
+
+\noindent
+Three features that look unrelated and are the same feature. Because state is a
+serialised value rather than a program counter, a run can stop, be inspected, be
+edited, be resumed days later in a different process --- and can be streamed out
+while it happens. All three fall out of Chapter~\ref{ch:persistence}'s
+checkpointer, and none of them is available without it.
+
+This chapter covers the human-in-the-loop patterns that matter in practice, the
+debugging capability nobody uses enough, and the streaming surface that most of
+the perceived quality of an agent product depends on.
+
+\begin{versionbox}
+The v3 event-streaming protocol in \S\ref{sec:v3} is marked experimental in the
+library itself --- importing it raises \code{LangChainBetaWarning: The v3
+streaming protocol on Pregel is experimental}, and the docstring says the API may
+change. It is also plainly the direction of travel and far better than what it
+replaces. Everything here was executed at the pinned versions; check the release
+notes before depending on the projection names.
+\end{versionbox}
+
+% ============================================================
+\section{Interrupt and resume}
+\label{sec:interrupt}
+\index{interrupt@\texttt{interrupt}}
+\index{human-in-the-loop}
+\index{Command@\texttt{Command}!resume}
+
+Three things are required and there is no fourth: a checkpointer, a
+\code{thread\_id}, and a JSON-serialisable payload.
+
+\begin{python}[caption={An approval gate}, label={lst:interrupt}]
+from langgraph.types import interrupt, Command
+
+
+def approval(state):
+    decision = interrupt({
+        "action": "send_email",
+        "body": state["draft"],
+    })
+    return {"approved": decision, "log": [f"decision={decision}"]}
+\end{python}
+
+Invoking the graph runs until the interrupt and then returns, with the payload
+under a reserved key:
+
+\begin{console}
+{'approved': False, 'log': ['prepared'],
+ '__interrupt__': [Interrupt(value={'action': 'send_email',
+                                    'body': 'Dear ops, ...'},
+                             id='8237ccb98629b3f9...')]}
+
+graph.get_state(config).next  ->  ('approval',)
+\end{console}
+
+The run is now a row in Postgres. No thread is blocked, no process is holding
+anything, and the pod can be terminated. \code{get\_state(...).next} tells you
+which node it is waiting at, which is what a queue dashboard would display.
+
+Resuming supplies the answer:
+
+\begin{python}[caption={Answering, possibly days later, on a different pod}, label={lst:resume}]
+graph.invoke(Command(resume=True), config=config)
+\end{python}
+
+\begin{console}
+['prepared', 'decision=True', 'done']
+\end{console}
+
+\mermaidfig{hitl-interrupt-resume}{%
+  The full lifecycle. Note where Pod~A ends and Pod~B begins: nothing is handed
+  between them except a \code{thread\_id}.}{%
+  Interrupt and resume across two processes and a multi-day gap.}
+
+\begin{dotnetbox}
+The closest thing is a durable orchestration awaiting an external event ---
+Durable Functions' \code{WaitForExternalEvent}, or a Temporal signal. The
+property that matters is the same: the waiting costs nothing, because it is a
+database row rather than a suspended thread, and the wait can outlive the process
+that started it.
+\end{dotnetbox}
+
+% ============================================================
+\section{The trap}
+\label{sec:interrupt-trap}
+\index{interrupt@\texttt{interrupt}!re-execution}
+
+Chapter~\ref{ch:persistence} established that the node is the replay boundary.
+\api{interrupt} is where that rule surprises people, because the pause looks like
+it happens \emph{inside} the function --- so it seems as though resumption should
+continue from the next line.
+
+It does not. The node restarts from the top, and \api{interrupt} replays its
+already-answered value rather than pausing again.
+
+\begin{python}[caption={The measurement}, label={lst:interrupt-trap}]
+def approval(state):
+    EFFECTS.append("expensive work BEFORE interrupt")
+    decision = interrupt({"action": "send_email"})
+    EFFECTS.append("work AFTER interrupt")
+    return {"log": [f"decision={decision}"]}
+\end{python}
+
+\begin{console}
+after 1st invoke: ['expensive work BEFORE interrupt']
+after resume    : ['expensive work BEFORE interrupt',
+                   'expensive work BEFORE interrupt',
+                   'work AFTER interrupt']
+
+BEFORE-interrupt code ran 2 times
+AFTER-interrupt  code ran 1 times
+\end{console}
+
+\begin{warning}
+\textbf{Everything before \api{interrupt} in the same node runs again on
+resume.} If that includes a model call you pay twice; if it includes the email,
+you send it before anyone approved it and then send it again.
+
+The rule is the one from Chapter~\ref{ch:persistence}, applied: the gate node
+does nothing except gate. Prepare in one node, interrupt in a second, act in a
+third.
+\end{warning}
+
+A node \emph{before} the gate is safe --- its checkpoint was committed, and
+measurement confirms it runs exactly once across the pause. The hazard is
+confined to the node containing the \api{interrupt} call.
+
+% ============================================================
+\section{Four shapes of human involvement}
+\label{sec:hitl-patterns}
+\index{human-in-the-loop!patterns}
+\index{approval gate}
+
+The same primitive covers four distinct interaction designs, and naming them
+helps because they have different failure modes.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Pattern} & \textbf{Payload carries} & \textbf{Resume value} \\
+\midrule
+Approve / reject & The proposed action & A boolean \\[3pt]
+Edit state & The proposed arguments & The corrected arguments \\[3pt]
+Review tool call & Tool name and input & Approve, edit, or a rejection reason \\[3pt]
+Ask the human & The question & The missing information \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Two design notes that apply to all four.
+
+\textbf{The payload is persisted and read by someone else.} It goes into the
+database, and it may be rendered in a UI by a different team, or read by an
+on-call engineer at three in the morning. Put enough in it to make the decision
+without the reader having to query anything: not \code{\{"tool": "send\_email"\}}
+but the recipient, the subject and the body.
+
+\textbf{Rejection is a path, not an exception.} ``The human said no'' is a normal
+outcome and the graph needs an edge for it. A rejection that raises leaves the
+thread in a state nobody can resume.
+
+\begin{note}
+At the LangChain layer, Chapter~\ref{ch:agents}'s human-in-the-loop middleware
+wraps this same mechanism for the common case of gating specific tools. It is the
+same interrupt underneath --- the middleware chooses the payload and the
+placement for you. Reach for the middleware when you are gating a tool call, and
+for raw \api{interrupt} when the pause is somewhere the agent loop has no concept
+of.
+\end{note}
+
+% ============================================================
+\section{Time travel}
+\label{sec:time-travel}
+\index{time travel}
+\index{get\_state\_history@\texttt{get\_state\_history}}
+\index{StateSnapshot@\texttt{StateSnapshot}}
+
+A checkpoint per superstep means the history is queryable:
+
+\begin{python}[caption={Every state this thread has been in}, label={lst:history}]
+for snapshot in graph.get_state_history(config):
+    print(snapshot.next, snapshot.values)
+\end{python}
+
+\begin{console}
+()             {'trail': ['researched otters', 'wrote about otters', 'reviewed']}
+('review',)    {'trail': ['researched otters', 'wrote about otters']}
+('write',)     {'trail': ['researched otters']}
+('research',)  {'trail': []}
+('__start__',) {'trail': []}
+\end{console}
+
+Newest first. Each snapshot carries eight fields:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \code{values} --- the state at that point
+\item \code{next} --- which nodes were about to run
+\item \code{config} and \code{parent\_config} --- this checkpoint and its parent
+\item \code{metadata} and \code{created\_at}
+\item \code{tasks} and \code{interrupts} --- pending work and pending approvals
+\end{itemize}
+
+That answers the question you actually have when an agent does something strange:
+\emph{what did the model see at step four?} Not what you think it saw --- what it
+saw.
+
+\subsection{Branching}
+\label{sec:branching}
+\index{update\_state@\texttt{update\_state}}
+
+You can rewind, change something, and run forward again:
+
+\begin{python}[caption={A what-if}, label={lst:branch}]
+target = [s for s in graph.get_state_history(config) if s.next == ("write",)][0]
+
+forked = graph.update_state(target.config, {"topic": "badgers"})
+graph.invoke(None, config=forked)
+\end{python}
+
+\begin{console}
+['researched otters', 'wrote about badgers', 'reviewed']
+\end{console}
+
+\mermaidfig{lg-time-travel}{%
+  A fork. The original branch survives; what moves is which checkpoint the thread
+  considers current.}{%
+  Checkpoint history as a tree, with a branch created by update\_state.}
+
+\api{update\_state} writes a \emph{new} checkpoint whose parent is the one you
+targeted --- a fork, not an edit. History grows rather than being rewritten, and
+the original tip stays readable by its \code{checkpoint\_id}.
+
+\begin{warning}
+The fork becomes the thread's head. After branching,
+\code{get\_state(\{"thread\_id": ...\})} returns the branch, not the original ---
+verified, and mildly surprising the first time. Nothing was destroyed, but the
+default view has moved. To read the original afterwards you must supply its
+\code{checkpoint\_id} explicitly, so capture it before you fork if you will want
+it.
+\end{warning}
+
+\begin{note}
+Three uses worth knowing. \textbf{Debugging}: inspect exactly what the model saw
+at the step where it went wrong. \textbf{What-if}: change one input and re-run
+the tail, without paying for the head again. \textbf{Correction}: a support agent
+fixes a bad tool argument and resumes, rather than restarting a twenty-turn
+conversation.
+
+The third is the one that shows up in product requirements and the one nobody
+plans for.
+\end{note}
+
+% ============================================================
+\section{Streaming: the seven modes}
+\label{sec:stream-modes}
+\index{streaming!modes}
+\index{streaming!values and updates}
+
+The base API is \code{stream} / \code{astream} with a \code{stream\_mode}, and
+the seven values are:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Mode} & \textbf{Yields} \\
+\midrule
+\code{values} & The complete state after each superstep \\
+\code{updates} & Only what each node returned --- the diff \\
+\code{messages} & Model tokens as they are generated \\
+\code{custom} & Whatever your nodes write through the stream writer \\
+\code{checkpoints} & A record per checkpoint \\
+\code{tasks} & Node start and finish \\
+\code{debug} & Everything, verbosely \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\code{updates} is the one to reach for when debugging, because it shows which
+node did what without the noise of unchanged state --- it is what
+Chapter~\ref{ch:stategraph} used to make supersteps visible. A list may be passed
+to get several at once.
+
+\subsection{Domain events}
+\label{sec:custom-stream}
+\index{streaming!custom events}
+
+\code{custom} is how a node reports progress that is not a token and not a state
+change --- ``searching shard 3 of 8''. The writer is on the runtime object from
+Chapter~\ref{ch:stategraph}:
+
+\begin{python}[caption={Emitting a domain event}, label={lst:stream-writer}]
+def retrieve(state, runtime):
+    runtime.stream_writer({"stage": "retrieval", "shards": 8})
+    ...
+\end{python}
+
+This is worth using more than people do. Most of the perceived latency of an
+agent is the gap between a user's question and the first visible sign of work,
+and a domain event fills that gap far better than a spinner.
+
+% ============================================================
+\section{Event streaming v3}
+\label{sec:v3}
+\index{streaming!v3 projections}
+\index{streaming!beta warning}
+
+Above the raw modes sits a typed, projection-based API. It is opt-in: the
+\code{version} argument still defaults to \code{"v2"}, and passing \code{"v3"}
+returns a stream object rather than an iterator of event dictionaries.
+
+\begin{python}[caption={Tokens out of a v3 stream}, label={lst:v3}]
+stream = await agent.astream_events(inp, version="v3")
+
+async for message in stream.messages:
+    async for delta in message.text:
+        yield delta
+\end{python}
+
+The projections available on the returned object are:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Projection} & \textbf{Carries} \\
+\midrule
+\code{messages} & Model responses; each exposes \code{.text} as a delta stream \\
+\code{tool\_calls} & Tool execution, from arguments to result \\
+\code{values} & Full state per step \\
+\code{output} & The final result \\
+\code{interrupts} / \code{interrupted} & Pending approvals --- \S\ref{sec:interrupt} \\
+\code{subagents} & Activity from nested agents \\
+\code{subgraphs} & Activity from nested graphs \\
+\code{lifecycle} & Run-level start and finish events \\
+\code{extensions} & Provider-specific extras \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+That the interrupt projections live here is the detail that ties this chapter
+together. A UI streaming an agent's tokens needs to render an approval prompt the
+moment the run pauses --- and it arrives on the same stream as the tokens, rather
+than requiring a separate poll of \code{get\_state}.
+\end{note}
+
+\subsection{The tool-call projection, precisely}
+\label{sec:toolcall-projection}
+\index{streaming!tool calls}
+\index{troubleshooting!awaiting an attribute}
+
+Each item from \code{tool\_calls} carries the name, the id and the arguments
+immediately, and the result only once you have driven it:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{Attribute} & \textbf{Type} & \textbf{When} \\
+\midrule
+\code{tool\_name} & \code{str} & Immediately \\
+\code{tool\_call\_id} & \code{str} & Immediately \\
+\code{input} & \code{dict} & Immediately \\
+\code{output\_deltas} & async iterable & Iterate this to drive it \\
+\code{output} & \code{None} $\rightarrow$ \code{ToolMessage} & After the deltas \\
+\code{completed} & \code{bool} & Flips to \code{True} after the deltas \\
+\code{error} & \code{None} or the failure & After the deltas \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\code{output} and \code{completed} are \textbf{mutating attributes, not
+awaitables}. \code{await call.output} raises
+\code{TypeError: object NoneType can't be used in 'await' expression}, and
+\code{await call.completed} raises the same about \code{bool}. Both are the
+natural first guess, and both are wrong.
+
+Iterate \code{output\_deltas} to completion, then read the attributes:
+
+\begin{python}[caption={Driving a tool call to completion}, label={lst:toolcall}]
+async for call in stream.tool_calls:
+    print("started:", call.tool_name, call.input)
+    async for delta in call.output_deltas:
+        ...                       # forward partial output, or discard
+    print("finished:", call.output.content)
+\end{python}
+\end{warning}
+
+\subsection{Two projections at once}
+\label{sec:concurrent-projections}
+\index{streaming!concurrent projections}
+
+This is where Part~I pays off directly. A good agent UI shows tokens
+\emph{and} tool status simultaneously, and the projections are independent async
+iterators --- so Chapter~\ref{ch:asyncio}'s \code{gather} is exactly the tool:
+
+\begin{python}[caption={Consuming two projections concurrently}, label={lst:two-projections}]
+stream = await agent.astream_events(inp, version="v3")
+
+
+async def consume_text():
+    async for message in stream.messages:
+        async for delta in message.text:
+            await push({"type": "token", "text": delta})
+
+
+async def consume_tools():
+    async for call in stream.tool_calls:
+        await push({"type": "tool_started", "name": call.tool_name})
+        async for _ in call.output_deltas:
+            pass
+        await push({"type": "tool_finished", "name": call.tool_name})
+
+
+await asyncio.gather(consume_text(), consume_tools())
+\end{python}
+
+\begin{console}
+tool-start  get_order
+tool-done   get_order -> shipped
+token       It has shipped.
+\end{console}
+
+\mermaidfig{stream-projections}{%
+  One run, many views. The cursors are independent, so a consumer that is slow on
+  one projection does not stall the others.}{%
+  Projections over a single v3 run, consumed concurrently.}
+
+Each cursor drives the underlying run when its own buffer empties, so no
+background task is needed and no projection starves another.
+
+\begin{warning}
+Nesting a v1-style \code{stream(stream\_mode="messages")} inside a node of a v3
+run is documented as not fully supported: the inner handler does not see token
+chunks, though it still gets a finalised message at the end. If you are composing
+graphs and want tokens from the inner one, use v3 for both.
+\end{warning}
+
+\subsection{What streaming does not fix}
+\label{sec:ttft}
+\index{latency!time to first token}
+
+Time to first token is dominated by the model, not by graph traversal. Streaming
+does not make an agent faster; it makes the waiting legible, which is a different
+and often more valuable thing.
+
+Where it genuinely moves the number is in what you choose to stream \emph{first}.
+A tool-status event emitted before the model has produced anything
+(\S\ref{sec:custom-stream}) arrives seconds earlier than the first token, and
+that gap is most of the perceived latency. Chapter~\ref{ch:serving} measures the
+service-level behaviour; the design decision belongs here.
+
+% ============================================================
+\section{Double texting}
+\label{sec:double-texting}
+\index{double texting}
+\index{double texting!policies}
+
+A user sends a second message while the first is still running. On a
+single-threaded chat UI this is rare; on anything with a mobile client, a flaky
+network, or an impatient user, it is routine.
+
+\mermaidfig{double-texting-policies}{%
+  Four policies. The framework supplies the parts; which one you implement is a
+  product decision.}{%
+  Double-texting policies as a decision tree.}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Policy} & \textbf{Behaviour} & \textbf{Cost} \\
+\midrule
+Reject & Refuse the second message & Simplest and honest; users dislike it \\[3pt]
+Enqueue & Run it after the first & Both answered; the second feels slow \\[3pt]
+Interrupt & Cancel the first, keep its checkpoint, start the second & Wasted
+  tokens; usually what the user meant \\[3pt]
+Rollback & Cancel and discard the first's state & Cleanest history; loses work
+  that may have been fine \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+Raw LangGraph gives you the parts --- \code{thread\_id}, checkpoints, and
+\code{asyncio} cancellation --- but not the policy. What it does \emph{not} give
+you is protection against the underlying hazard: \textbf{two concurrent runs on
+one \code{thread\_id}} interleave their writes and corrupt the thread.
+
+Doing nothing is therefore not one of the four options; it is the bug. The
+per-thread lock in Chapter~\ref{ch:serving} is the minimum, and the policy is
+what you do once the lock is held.
+\end{warning}
+
+\begin{note}
+LangGraph Platform implements these four policies as a configuration option. If
+you are self-hosting, Chapter~\ref{ch:serving} builds the lock and
+Chapter~\ref{ch:ecosystem} weighs the managed runtime against doing it yourself.
+Interrupt is the usual default: a user who sends a second message has almost
+always changed their mind about the first.
+\end{note}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch10-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item \api{interrupt} needs a checkpointer, a \code{thread\_id} and a
+      serialisable payload. The paused run is a row, not a held thread, and it
+      resumes in a process that never saw it start.
+\item \textbf{Code before \api{interrupt} in the same node runs again on
+      resume} --- measured at twice. The gate node should do nothing but gate.
+\item Write payloads for the human who will read them, and give rejection a real
+      edge in the graph.
+\item \api{get\_state\_history} answers ``what did the model actually see at step
+      four''. \api{update\_state} forks rather than edits --- but the fork becomes
+      the thread's head, so capture the original \code{checkpoint\_id} first.
+\item Seven stream modes; \code{updates} is the debugging one and \code{custom}
+      is the underused one.
+\item v3 is opt-in, experimental, and much better. Its projections carry
+      pending approvals too, so an approval prompt arrives on the same stream as
+      the tokens.
+\item On a tool call, \code{output} and \code{completed} are mutating attributes,
+      not awaitables. Drive \code{output\_deltas} first.
+\item Projections are independent async iterators, so \code{gather} them.
+\item Streaming does not reduce time to first token; emitting a domain event
+      before the model responds does.
+\item Two concurrent runs on one \code{thread\_id} corrupt the thread. Pick a
+      double-texting policy, and hold a lock regardless of which.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Reproduce the re-execution measurement. Put a print before and after
+\api{interrupt} in one node, interrupt, resume, and count. Then split the node in
+three and confirm the count drops to one.
+
+\textbf{2.} Resume an interrupted run from a \emph{freshly constructed} graph
+object, as in Chapter~\ref{ch:persistence}. This is the test that proves nothing
+in memory was load-bearing, and it is the one worth having in CI.
+
+\textbf{3.} Run a three-node graph, list its history, rewind to the middle,
+change one state value and run forward. Then read the original tip back by its
+\code{checkpoint\_id} and confirm both branches exist.
+
+\textbf{4.} Consume \code{messages} and \code{tool\_calls} concurrently under
+\code{gather} and log arrival order. Then make one consumer artificially slow and
+confirm the other keeps flowing.
+
+\textbf{5.} Try \code{await call.output} and read the error. Then do it properly.
+The wrong version is the one you will write first, so meet it deliberately.
+
+\textbf{6.} Send two requests for one \code{thread\_id} concurrently with no
+lock. Inspect the resulting history and decide how you would explain it to
+whoever reported the bug.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 07 --- human in the loop, and streaming.} An \api{interrupt} before
+the email send, a resume endpoint that takes the decision, a time-travel debug
+endpoint over \api{get\_state\_history}, and streaming that carries tokens and
+tool status as two projections under \code{gather}.
+
+The test contract in \code{stages/07-hitl-streaming/README.md} is explicit that
+the resume must happen through a freshly constructed graph, and that the
+re-execution of pre-\api{interrupt} code must be \emph{asserted} rather than
+avoided by luck --- then the node split so it stops happening.
+
+One prerequisite this chapter uncovered: no in-box fake chat model implements
+\code{bind\_tools}, so none of them can be used inside an agent that has tools.
+The scriptable fake in stage 03 must add it. That is a five-line subclass, and
+every streaming test in this stage depends on it.
+\end{projectbox}

@@ -1,0 +1,27 @@
+graph TB
+  subgraph SS1["SUPERSTEP 1"]
+    direction TB
+    I1["state in: counter = 0"]
+    A["node a<br/>reads counter = 0<br/>returns +1"]
+    B["node b<br/>reads counter = 0<br/>returns +1"]
+    I1 --> A
+    I1 --> B
+    N1["a and b run independently.<br/>Neither sees the other's write."]
+  end
+
+  BAR1["=== BOUNDARY ===<br/>updates merged through reducers<br/>counter = 0 + 1 + 1 = 2<br/>checkpoint taken here"]
+
+  subgraph SS2["SUPERSTEP 2"]
+    direction TB
+    C["node c<br/>reads counter = 2"]
+    N2["c sees BOTH writes,<br/>because the boundary applied them."]
+  end
+
+  SS1 --> BAR1 --> SS2
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef bar fill:#FDF3E0,stroke:#B26A00,stroke-width:2px
+  classDef note fill:#FFFFFF,stroke:#D8DEE4,color:#5A5A5A
+  class I1,A,B,C n
+  class BAR1 bar
+  class N1,N2 note

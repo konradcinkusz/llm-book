@@ -1,0 +1,297 @@
+\chapter{Tools and Structured Output}
+\label{ch:tools}
+
+\begin{quote}\itshape
+The docstring is not documentation. It is part of the prompt.
+\end{quote}
+
+\noindent
+A tool is a function the model can decide to call. The thing engineers
+consistently underestimate is that the function's name, its type hints, its field
+descriptions and its docstring are all sent to the model. They are not
+commentary --- they are the specification it routes on.
+
+A tool that works perfectly and is described vaguely will be called at the wrong
+times, and nothing in your test suite will tell you.
+
+% ============================================================
+\section{What the model actually receives}
+\label{sec:tool-schema}
+\index{tools!schema}
+\index{tool@\texttt{@tool}}
+\index{docstring}
+
+\begin{python}[caption={A tool, and the schema it generates}, label={lst:tool}]
+from langchain.tools import tool
+
+
+@tool
+def get_weather(city: str) -> str:
+    """Return the current weather for a city."""
+    return "sunny"
+\end{python}
+
+\begin{console}
+name:        get_weather
+description: 'Return the current weather for a city.'
+args:        {'city': {'title': 'City', 'type': 'string'}}
+\end{console}
+
+The docstring became the description. The type hint became the schema. Both were
+sent to the model.
+
+\mermaidfig{tool-schema-to-prompt}{%
+  The three things that travel to the model, and what they determine.}{%
+  How a Python function becomes part of the prompt.}
+
+For anything non-trivial, declare the schema explicitly so you can describe each
+field:
+
+\begin{python}[caption={An explicit schema with descriptions}, label={lst:args-schema}]
+from pydantic import BaseModel, Field
+
+
+class SearchArgs(BaseModel):
+    query: str = Field(description="Natural-language query")
+    top_k: int = Field(default=5, ge=1, le=50, description="How many results")
+
+
+@tool(args_schema=SearchArgs)
+def search(query: str, top_k: int = 5) -> str:
+    """Search the knowledge base."""
+    ...
+\end{python}
+
+\begin{console}
+{'query': {'description': 'Natural-language query', ...},
+ 'top_k': {'default': 5, 'description': 'How many results',
+           'maximum': 50, 'minimum': 1, 'type': 'integer'}}
+\end{console}
+
+The constraints travel too. \code{ge=1, le=50} became \code{minimum} and
+\code{maximum} in the schema the model reads --- so the bounds are documentation
+for the model and validation for you, from one declaration.
+
+\begin{warning}
+Write descriptions for the model, not for yourself. ``Gets orders'' tells a
+reader what they already guessed and tells the model nothing about \emph{when} to
+call it. ``Find a customer's recent orders by customer id. Use this when asked
+about order status, delivery or history'' is longer, is not prose you would
+enjoy, and measurably changes behaviour.
+\end{warning}
+
+% ============================================================
+\section{Async tools, and what a sync one costs}
+\label{sec:async-tools}
+\index{tools!async}
+\index{ainvoke@\texttt{ainvoke}}
+
+\begin{python}[caption={The shape to write in a service}, label={lst:async-tool}]
+@tool
+async def search_orders(customer_id: str, limit: int = 10) -> list[dict]:
+    """Find a customer's recent orders by customer id."""
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"/orders/{customer_id}", params={"limit": limit})
+        return r.json()
+\end{python}
+
+A synchronous tool works: the framework runs it in a thread pool when the agent
+is invoked asynchronously. It works and it costs. Chapter~\ref{ch:asyncio}
+measured the thread-pool escape hatch as adequate and bounded;
+Chapter~\ref{ch:serving} measured what happens when it saturates. In a service,
+write tools async.
+
+\begin{warning}
+The dangerous case is a tool that \emph{looks} async and is not: an
+\code{async def} whose body calls a blocking driver. The framework sees a
+coroutine and runs it on the loop, where it blocks everything ---
+Chapter~\ref{ch:serving} priced that at 44\% of throughput. \code{ruff}'s
+\code{ASYNC} rules catch the obvious cases; a blocking call three layers down in
+a library they do not.
+\end{warning}
+
+% ============================================================
+\section{The round trip}
+\label{sec:tool-round-trip}
+\index{tools!round trip}
+\index{ToolMessage@\texttt{ToolMessage}}
+
+\mermaidfig{tool-round-trip}{%
+  One turn with two tool calls. Note that both arrive in a single response.}{%
+  The tool-calling round trip, including parallel calls.}
+
+Two things worth drawing out.
+
+\textbf{Multiple tool calls arrive together.} A model can ask for several tools
+in one response, and they are independent --- so they run concurrently, which is
+Chapter~\ref{ch:asyncio}'s \code{gather} doing useful work inside the framework.
+
+\textbf{The loop ends when the model stops asking.} There is no other exit
+condition, which is Chapter~\ref{ch:agents}'s warning and the reason a call limit
+belongs in every production agent.
+
+\subsection{Errors are messages, not exceptions}
+\label{sec:tool-errors}
+\index{tools!error handling}
+
+A tool that raises does not necessarily fail the run. The failure can be returned
+to the model as a \api{ToolMessage}, which lets it correct itself --- retry with
+different arguments, or explain to the user that the lookup failed.
+
+That is a configuration decision, not a given, and it has a sharp edge:
+
+\begin{warning}
+Return an error the model can act on, not a stack trace. A Python traceback in a
+\api{ToolMessage} is tokens the model cannot use and may quote at your user.
+``No customer found with id 123 --- check the id format, which is CUS-nnnn''
+produces a correction. \code{KeyError: 'customer\_id'} produces a retry loop.
+
+This is also a security boundary: a traceback leaks internal paths, library
+versions and sometimes credentials into a context you may be logging or
+streaming to a browser (Chapter~\ref{ch:security}).
+\end{warning}
+
+% ============================================================
+\section{Too many tools}
+\label{sec:tool-count}
+\index{tools!selection quality}
+\index{measurement!tool selection}
+
+Selection quality degrades as the tool count rises. The commonly cited threshold
+is somewhere around fifteen to twenty, it varies by model, and the mechanism is
+straightforward: every tool's name, description and schema is in the context on
+every call (Chapter~\ref{ch:context}), and the model is choosing from a longer
+list of similar-sounding options.
+
+Three structural answers, none of which is ``write better descriptions'':
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Approach} & \textbf{Trade} \\
+\midrule
+Tool selector middleware & A model call to narrow the set before the real call.
+  Costs a call; saves context and improves selection. \\[3pt]
+Subagent partitioning & Each agent has few tools
+  (Chapter~\ref{ch:multi-agent}). Costs the topology overhead measured there. \\[3pt]
+MCP namespacing & Tools live behind servers and are loaded per task
+  (Chapter~\ref{ch:ecosystem}). Costs operational complexity. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\textbf{This is the book's fourth experiment and it has not been run.} The
+specification: tool-selection accuracy over thirty fixed queries, with five tools
+against twenty, and terse descriptions against descriptive ones --- four cells,
+twenty runs each, reporting accuracy and spread.
+
+It needs a real model, because selection is exactly the behaviour a fake cannot
+simulate. Until it runs, the fifteen-to-twenty figure above is received wisdom
+rather than measurement, and this book labels it as such. Appendix~\ref{app:cheatsheet}'s
+table for it stays empty.
+\end{warning}
+
+% ============================================================
+\section{Structured output}
+\label{sec:structured-output}
+\index{structured output}
+\index{ToolStrategy@\texttt{ToolStrategy}}
+\index{ProviderStrategy@\texttt{ProviderStrategy}}
+
+When you need a typed object rather than prose, declare the shape:
+
+\begin{python}[caption={Structured output, folded into the agent loop}, label={lst:structured}]
+class Ticket(BaseModel):
+    priority: str
+    category: str
+    summary: str
+
+
+agent = create_agent(model, tools=[...], response_format=Ticket)
+result = agent.invoke({"messages": [...]})
+result["structured_response"]        # a Ticket instance
+\end{python}
+
+Three strategies exist, and they are real classes you can name explicitly:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Strategy} & \textbf{Mechanism} \\
+\midrule
+\api{ProviderStrategy} & The provider's native structured output. Fastest and
+  most reliable; takes a \code{strict} flag. Not every provider has it. \\[3pt]
+\api{ToolStrategy} & The schema is offered as a tool the model must call. Works
+  everywhere; takes \code{handle\_errors} for validation failures. \\[3pt]
+\api{AutoStrategy} & Picks native where available, tool-based otherwise. The
+  sensible default. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+In 1.0 the schema is required --- there is no prompted-JSON path. Asking a model
+to ``respond only with JSON'' and parsing the result was the pre-1.0 pattern, it
+failed a few percent of the time in ways that were tedious to handle, and it is
+not coming back. If you see it in an example, date the example
+(Chapter~\ref{ch:landscape}).
+\end{note}
+
+\begin{warning}
+Structured output constrains the \emph{shape}, not the \emph{truth}. A
+\code{Ticket} with \code{priority="critical"} validates perfectly whether or not
+the ticket is critical. Schema validation is not evaluation, and
+Chapter~\ref{ch:observability} is where the difference gets measured.
+\end{warning}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch6-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Name, docstring, type hints and field descriptions are all prompt. Write
+      them for the model.
+\item Pydantic constraints travel into the schema the model reads --- one
+      declaration serves as documentation and validation.
+\item Write tools async. An \code{async def} wrapping a blocking driver is worse
+      than an honest sync tool.
+\item Return errors the model can act on. A traceback is unusable tokens and a
+      leak.
+\item Past roughly twenty tools, selection degrades --- and the answers are
+      structural, not stylistic. \textbf{This is unmeasured in this book and
+      labelled as such.}
+\item Structured output has three strategies; \api{AutoStrategy} is the default.
+      Prompted JSON is a pre-1.0 pattern.
+\item A schema constrains shape, never truth.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Write a tool, print its generated schema, and check it is what you
+would want to read if you were the model.
+
+\textbf{2.} Take a tool with a terse docstring and one with a thorough one, give
+the agent both plus eight distractors, and run thirty queries. You have just run
+a quarter of experiment 4 --- record the numbers.
+
+\textbf{3.} Make a tool raise. Return the traceback, then return a sentence the
+model can act on. Compare what the agent does next.
+
+\textbf{4.} Force \api{ToolStrategy} and then \api{ProviderStrategy} for the same
+schema against a provider that supports both, and compare latency and failure
+rate over fifty calls.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 03 --- the tools, and the harness.} Five async tools with explicit
+schemas, plus the scriptable fake model everything later depends on.
+
+Two contract items carry the stage. Each tool's generated schema is asserted
+against a snapshot --- because that schema is what the model sees, so a change to
+it is a behavioural change that should not pass review silently. And the fake
+must override \code{bind\_tools}: Chapter~\ref{ch:interrupts} found that no
+in-box fake implements it, so none of them can be used inside an agent that has
+tools.
+\end{projectbox}

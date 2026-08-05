@@ -1,0 +1,30 @@
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant S as FastAPI handler
+  participant G as agent (built in lifespan)
+  participant DB as Postgres
+
+  C->>S: POST /chat {thread_id, text}
+  S->>S: acquire per-thread lock
+  S->>G: astream_events(version="v3")
+  G->>DB: checkpoint per superstep
+
+  loop tokens
+    G-->>S: delta
+    S-->>C: data: {"delta": "..."}
+  end
+
+  Note over C: client closes the tab
+  C--xS: connection dropped
+  S->>S: CancelledError in the generator
+
+  alt policy: cancel
+    S->>G: cancel the run
+    Note over DB: checkpoint keeps work done so far
+  else policy: finish in background
+    S->>G: detach, let it complete
+    Note over DB: full result is checkpointed<br/>and available on reconnect
+  end
+
+  S->>S: release the lock (in finally)

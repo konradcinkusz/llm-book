@@ -1,0 +1,27 @@
+graph TB
+  subgraph naive["NAIVE — 43,510 billed tokens over 10 turns"]
+    N1["system prompt<br/>~2%"]
+    N2["user messages<br/>~4%"]
+    N3["assistant replies<br/>~6%"]
+    N4["TOOL RESULTS<br/>~88%"]
+  end
+
+  subgraph projected["PROJECTED — 6,910 billed tokens"]
+    P1["system prompt"]
+    P2["user messages"]
+    P3["assistant replies"]
+    P4["tool results,<br/>3 fields not 40"]
+  end
+
+  naive -->|"project tool output"| projected
+
+  N["Everyone trims conversation history.<br/>Almost nobody trims tool output.<br/><br/>MEASURED: trimming history saved 35%.<br/>Projecting tool results saved 84%."]:::warn
+  naive -.- N
+
+  classDef small fill:#E8F0F5,stroke:#1F4E79
+  classDef big fill:#FBE9E9,stroke:#9B2C2C,stroke-width:2px
+  classDef ok fill:#E8F4F0,stroke:#0E7C7B
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class N1,N2,N3 small
+  class N4 big
+  class P1,P2,P3,P4 ok

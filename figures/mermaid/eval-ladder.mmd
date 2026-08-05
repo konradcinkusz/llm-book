@@ -1,0 +1,20 @@
+graph TB
+  A["DETERMINISTIC CHECKS<br/>Was tool X called? Does the schema<br/>validate? Exact match?<br/><br/>Free. Instant. Never flaky.<br/>Run on every commit."]
+  B["TRAJECTORY CHECKS<br/>Right tools, right order? How many<br/>steps? What did it cost?<br/><br/>Free. The agent-specific layer<br/>almost nobody builds."]
+  C["LLM AS JUDGE<br/>Is the answer relevant, grounded,<br/>complete?<br/><br/>Costs money. Needs calibration<br/>against human labels or it lies."]
+  D["HUMAN REVIEW<br/>The ground truth everything else<br/>is calibrated against.<br/><br/>Expensive. Small samples.<br/>Irreplaceable."]
+
+  A --> B --> C --> D
+
+  N["Push work DOWN this ladder.<br/>Every check you can make<br/>deterministic is one you never<br/>have to calibrate, pay for,<br/>or argue about."]
+
+  D -.- N
+
+  classDef free fill:#E8F4F0,stroke:#0E7C7B
+  classDef paid fill:#FDF3E0,stroke:#B26A00
+  classDef dear fill:#FBE9E9,stroke:#9B2C2C
+  classDef note fill:#F4F6F8,stroke:#1F4E79,color:#5A5A5A
+  class A,B free
+  class C paid
+  class D dear
+  class N note

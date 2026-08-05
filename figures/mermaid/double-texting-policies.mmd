@@ -1,0 +1,17 @@
+graph TB
+  A["Run in flight on thread T"] --> B["Second message arrives<br/>for the SAME thread"]
+  B --> C{"Policy?"}
+
+  C -->|reject| R["409 Conflict.<br/>Honest, simplest, and users hate it."]
+  C -->|enqueue| Q["Queue behind the current run.<br/>Both answered, second is late."]
+  C -->|interrupt| I["Cancel the in-flight run,<br/>KEEP its checkpoint,<br/>start the new one."]
+  C -->|rollback| RB["Cancel AND discard its state.<br/>As if it never happened."]
+
+  N["LangGraph gives you the parts —<br/>cancellation, checkpoints, thread_id.<br/>The policy is YOURS to implement.<br/>See Chapter 13's per-thread lock."]:::note
+  C -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef opt fill:#E8F0F5,stroke:#1F4E79
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class A,B,C n
+  class R,Q,I,RB opt

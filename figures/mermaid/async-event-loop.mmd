@@ -1,0 +1,21 @@
+sequenceDiagram
+  autonumber
+  participant L as Event loop
+  participant A as call_llm(prompt_1)
+  participant B as call_llm(prompt_2)
+  participant N as Network
+
+  L->>A: resume
+  A->>N: request
+  Note over A: hits await —<br/>yields control
+  A-->>L: suspended
+  L->>B: resume
+  B->>N: request
+  B-->>L: suspended
+  Note over L: loop is idle, not blocked.<br/>Both requests are in flight.
+  N-->>L: response for prompt_2
+  L->>B: resume with result
+  B-->>L: done
+  N-->>L: response for prompt_1
+  L->>A: resume with result
+  A-->>L: done

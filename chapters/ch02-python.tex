@@ -1,0 +1,286 @@
+\chapter{Python for the .NET Engineer}
+\label{ch:python}
+
+\begin{quote}\itshape
+The language is the small part. The idioms are what a reviewer notices.
+\end{quote}
+
+\noindent
+You can be productive in Python in a fortnight and still write code a Python
+reviewer will quietly rewrite. This chapter is about the difference. It is not a
+tour of the language --- it is the specific places where an engineer with a
+decade of C\# behind them reliably produces something that works and reads wrong,
+plus the parts of the modern toolchain that have no C\# equivalent and therefore
+get skipped.
+
+One idea underpins the rest: \textbf{Python's type hints are not enforced at run
+time}. Nothing checks them. Understanding that explains the design of nearly
+every library in this book.
+
+% ============================================================
+\section{The toolchain}
+\label{sec:toolchain}
+\index{uv@\texttt{uv}}
+\index{ruff@\texttt{ruff}}
+\index{mypy@\texttt{mypy}}
+\index{pytest@\texttt{pytest}}
+\index{pyproject.toml@\texttt{pyproject.toml}}
+
+\mermaidfig{py-toolchain}{%
+  One configuration file, one lockfile, one command to run anything.}{%
+  The Python toolchain and its .NET equivalents.}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{Python} & \textbf{.NET} & \\
+\midrule
+\code{pyproject.toml} & \code{.csproj} & Dependencies \emph{and} tool
+  configuration, in one file \\[3pt]
+\code{uv.lock} & \code{packages.lock.json} & Exact versions. Commit it. \\[3pt]
+\code{uv sync} & \code{dotnet restore} & Creates the environment from the lock \\[3pt]
+\code{uv run X} & \code{dotnet run} & Runs X inside it, no activation step \\[3pt]
+\code{ruff} & analysers + \code{dotnet format} & Lint and format, one tool \\[3pt]
+\code{mypy --strict} & the compiler & Except it is optional and separate \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Use \code{uv}. There are four other tools that do overlapping subsets of this and
+the ecosystem has genuinely converged; if your organisation has standardised on
+Poetry or pip-tools, the concepts transfer and the lockfile is the part that
+matters.
+
+\begin{note}
+Configuring everything in \code{pyproject.toml} rather than in five dotfiles is
+worth insisting on. It is the one place a new contributor looks, and it is what
+makes \code{uv run ruff check .} behave identically on their machine and in CI.
+\end{note}
+
+% ============================================================
+\section{Types are a linting convention}
+\label{sec:typing}
+\index{typing!Pydantic}
+\index{typing!gradual}
+\index{typing!strict mode}
+\index{BaseModel@\texttt{BaseModel}}
+
+\begin{python}[caption={This runs, and prints 7}, label={lst:no-runtime-types}]
+def add(a: int, b: int) -> int:
+    return a + b
+
+
+add("3", "4")        # returns "34". No error. Ever.
+\end{python}
+
+\mermaidfig{py-typing-map}{%
+  Where hints suffice, where they do not, and what fills the gap.}{%
+  Type hints, their limits, and Pydantic's role.}
+
+\code{mypy --strict} catches that at lint time, which is why this book insists on
+it from the first commit. But nothing catches it at run time, and \emph{data
+crossing a boundary} --- an HTTP body, a model's output, a config file --- has not
+been through mypy.
+
+That is Pydantic's job, and once you see it the library designs stop being
+arbitrary:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Where} & \textbf{Why Pydantic} \\
+\midrule
+Tool argument schemas (Ch.~\ref{ch:tools}) & The model produces the arguments,
+  and it is not type-checked \\[3pt]
+Structured output (Ch.~\ref{ch:tools}) & Same, in reverse \\[3pt]
+Settings & Configuration arrives as strings from the environment \\[3pt]
+API bodies (Ch.~\ref{ch:serving}) & The client is not your code \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{python}[caption={Typed, validated configuration}, label={lst:settings}]
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str
+    model_concurrency: int = 8
+    max_usd_per_conversation: float = 0.50
+\end{python}
+
+Nothing in the mini-project's \code{src/} reads an environment variable
+directly. It goes through this object, so configuration is typed, validated at
+startup rather than at first use, and testable by construction.
+
+\subsection{The constructs you will actually meet}
+\label{sec:typing-constructs}
+\index{typing!Protocol}
+\index{typing!Optional and union}
+\index{typing!TypedDict}
+\index{typing!Annotated}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Construct} & \textbf{Note for a C\# reader} \\
+\midrule
+\code{Protocol} & An interface, but \emph{structural}: a class satisfies it by
+  having the members, without declaring it. Closer to a Go interface than a C\#
+  one. \\[3pt]
+\code{TypedDict} & A dict with a declared shape. LangGraph state uses it
+  (Ch.~\ref{ch:stategraph}) because state is a dict the runtime merges, not an
+  object it constructs. \\[3pt]
+\code{Annotated[T, x]} & A type carrying metadata. This is how a reducer attaches
+  to a state field. \\[3pt]
+\code{Literal["a","b"]} & A closed set of values. Where you would reach for an
+  enum. \\[3pt]
+\code{T | None} & Nullable. Prefer it to \code{Optional[T]} in new code. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================
+\section{Code that reads as C\#}
+\label{sec:non-pythonic}
+\index{.NET!idiom translation}
+\index{comprehension}
+
+The review checklist. None of these is wrong; all of them are noticed.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}XX@{}}
+\toprule
+\textbf{Instead of} & \textbf{Write} \\
+\midrule
+\code{for i in range(len(xs)):} & \code{for x in xs:} --- or
+  \code{enumerate(xs)} if you need the index \\[3pt]
+A class with one method and no state & A function. Python has module-level
+  functions and they are not second-class \\[3pt]
+Getters and setters & Public attributes, and \code{@property} on the day you
+  need computation \\[3pt]
+\code{try: ... except: pass} & Catch the specific exception, and never bare
+  \code{except} --- it swallows \code{CancelledError}
+  (Ch.~\ref{ch:cancellation}) \\[3pt]
+Manual resource cleanup & \code{with} / \code{async with} \\[3pt]
+\code{IFoo} interface names & \code{Foo} --- and probably a \code{Protocol} \\[3pt]
+A builder class & Keyword arguments with defaults \\[3pt]
+\code{camelCase} & \code{snake\_case} for everything but classes \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+The one that matters beyond style is the bare \code{except}. Chapter~\ref{ch:cancellation}
+explains why: \code{CancelledError} is an exception, a bare \code{except} catches
+it, and a service that swallows cancellation cannot be shut down. It is a
+one-character difference between a habit and an outage.
+\end{note}
+
+% ============================================================
+\section{Idioms worth adopting deliberately}
+\label{sec:idioms}
+\index{context manager}
+\index{dataclass}
+\index{f-string}
+
+\textbf{Context managers} for anything with a lifetime. \code{with} and
+\code{async with} are \code{using} and \code{await using}, and writing your own
+with \code{@contextmanager} is three lines rather than a class.
+
+\textbf{Decorators} are everywhere in this book --- \code{@tool},
+\code{@entrypoint}, \code{@task}, the middleware hooks. They are functions
+returning functions; attribute-plus-source-generator is the nearest C\# analogue,
+except they run at import time and you can write one in four lines.
+
+\textbf{Dataclasses} for plain data you construct yourself; Pydantic models for
+data that arrives from outside. The distinction is validation cost: dataclasses
+do not validate, and for internal data that is correct.
+
+\textbf{Comprehensions} over \code{map}/\code{filter}. \code{[f(x) for x in xs if
+p(x)]} is the LINQ you already write, spelled differently.
+
+% ============================================================
+\section{Structure and logging}
+\label{sec:project-structure}
+\index{logging!structured}
+\index{project layout}
+
+\begin{python}[caption={The layout this book assumes}, label={lst:layout}]
+src/ops_copilot/       # the package -- src layout, so tests import it installed
+tests/
+pyproject.toml
+\end{python}
+
+The \code{src/} layout matters more than it looks: without it, tests import your
+package from the working directory, which is not how a user will get it, and
+packaging mistakes stay hidden until release.
+
+\textbf{Dependency injection without a container.} Python's answer is usually a
+function parameter with a default, or an object built once and passed in ---
+which is exactly what Chapter~\ref{ch:serving}'s \code{lifespan} does. There is
+no \code{IServiceCollection} and you will not miss it as much as you expect.
+
+\textbf{Structured logging.} Use \code{structlog}, or the standard library with
+a JSON formatter. Log key-value pairs rather than interpolated sentences:
+
+\begin{python}[caption={Queryable, versus greppable}, label={lst:logging}]
+log.info("tool_call", tool=name, user=uid)     # queryable
+log.info(f"user {uid} called {name}")          # a grep
+\end{python}
+
+\begin{warning}
+Do not log message content by default. Conversations contain personal data, and
+a log line is the easiest way to leak it into a third-party aggregator with a
+different retention policy than the one you agreed with your users
+(Chapter~\ref{ch:security}).
+\end{warning}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch2-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Type hints are not enforced at run time. \code{mypy --strict} from the
+      first commit, because retrofitting it is a project of its own.
+\item Pydantic guards boundaries. That is why tool schemas, structured output,
+      settings and API bodies are all Pydantic.
+\item \code{TypedDict} is the exception, and LangGraph state is where you meet
+      it.
+\item Never write a bare \code{except}. It swallows cancellation.
+\item Functions over one-method classes; \code{with} over manual cleanup;
+      comprehensions over \code{map}.
+\item \code{src/} layout, configuration through one settings object, structured
+      logging with key-value pairs.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Take a small C\# class you know well and port it. Then ask what a
+Python reviewer would change --- most of the answers are in
+\S\ref{sec:non-pythonic}.
+
+\textbf{2.} Write a function annotated \code{-> int} that returns a string. Watch
+it run. Then run \code{mypy --strict} over it.
+
+\textbf{3.} Define a \code{Protocol} and a class that satisfies it without
+inheriting from it. This is the one typing construct with no C\# equivalent and
+it is worth ten minutes.
+
+\textbf{4.} Write \code{try: ... except: pass} around an \code{await}, cancel the
+task, and observe that the cancellation is swallowed. Keep the output for
+Chapter~\ref{ch:cancellation}.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 00 --- the skeleton.} \code{uv}, \code{pyproject.toml}, ruff, mypy
+strict, pytest with \code{asyncio\_mode = "auto"}, and CI running all four.
+
+Three tests, and the third is the interesting one: it asserts that an
+\code{async def} test actually runs. If the asyncio mode setting is ever lost, an
+un-awaited coroutine reports a pass --- so a suite can go green while testing
+nothing, which is precisely the failure that test exists to catch.
+\end{projectbox}

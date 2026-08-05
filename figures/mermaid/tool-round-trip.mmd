@@ -1,0 +1,19 @@
+sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant M as Model
+  participant T as Tools
+
+  A->>M: messages plus tool schemas
+  M-->>A: AIMessage with TWO tool_calls
+  Note over A,T: two calls in one response, so run them concurrently
+  par
+    A->>T: get_order(id=123)
+    T-->>A: ToolMessage
+  and
+    A->>T: check_stock(sku=A1)
+    T-->>A: ToolMessage
+  end
+  A->>M: messages plus BOTH ToolMessages
+  M-->>A: AIMessage with an answer and no tool_calls
+  Note over A: no tool_calls, so the loop ends

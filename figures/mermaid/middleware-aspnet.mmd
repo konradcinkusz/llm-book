@@ -1,0 +1,27 @@
+graph TB
+  subgraph asp["ASP.NET Core"]
+    R1["request"] --> M1["app.Use(async (ctx, next) =>"]
+    M1 --> M2["  before work"]
+    M2 --> M3["  await next(ctx)"]
+    M3 --> M4["  after work"]
+    M4 --> R2["response"]
+  end
+
+  subgraph lc["LangChain 1.x"]
+    Q1["model request"] --> N1["def wrap_model_call(self, request, handler):"]
+    N1 --> N2["    before work"]
+    N2 --> N3["    response = handler(request)"]
+    N3 --> N4["    after work"]
+    N4 --> Q2["model response"]
+  end
+
+  MAP["next(ctx)  ==  handler(request)<br/>registration order  ==  list order<br/>short-circuit by not calling it  ==  same<br/>ordering is behaviour, not style  ==  same"]:::map
+
+  asp -.- MAP
+  lc -.- MAP
+
+  classDef a fill:#E8F0F5,stroke:#1F4E79
+  classDef b fill:#E8F4F0,stroke:#0E7C7B
+  classDef map fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class R1,M1,M2,M3,M4,R2 a
+  class Q1,N1,N2,N3,N4,Q2 b
