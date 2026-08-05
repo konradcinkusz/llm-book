@@ -1,0 +1,35 @@
+graph TB
+  subgraph once1["ONCE, at the start"]
+    A1["A.before_agent"] --> B1["B.before_agent"]
+  end
+
+  subgraph loop["PER MODEL CALL — repeats"]
+    A2["A.before_model"] --> B2["B.before_model"]
+    B2 --> A3["A.wrap_model_call ENTER"]
+    A3 --> B3["B.wrap_model_call ENTER"]
+    B3 --> MODEL["the model call"]
+    MODEL --> B4["B.wrap_model_call EXIT"]
+    B4 --> A4["A.wrap_model_call EXIT"]
+    A4 --> B5["B.after_model"]
+    B5 --> A5["A.after_model"]
+    A5 --> AT["A.wrap_tool_call ENTER"]
+    AT --> BT["B.wrap_tool_call ENTER"]
+    BT --> TOOL["the tool body"]
+    TOOL --> BT2["B.wrap_tool_call EXIT"]
+    BT2 --> AT2["A.wrap_tool_call EXIT"]
+  end
+
+  subgraph once2["ONCE, at the end"]
+    B6["B.after_agent"] --> A6["A.after_agent"]
+  end
+
+  once1 --> loop --> once2
+
+  R["THE RULE, measured with middleware=[A, B]:<br/>before_* run in DECLARATION order (A then B)<br/>after_*  run in REVERSE order (B then A)<br/>wrap_*   NEST, first-declared outermost"]:::rule
+  loop -.- R
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef core fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef rule fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class A1,B1,A2,B2,A3,B3,B4,A4,B5,A5,AT,BT,BT2,AT2,B6,A6 n
+  class MODEL,TOOL core

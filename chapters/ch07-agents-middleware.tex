@@ -8,44 +8,472 @@ before.
 
 \noindent
 \api{create\_agent} is the shortest path to a working agent, and middleware is
-1.0's flagship extensibility mechanism. The analogy to \code{app.Use(async (ctx,
-next) => ...)} is exact rather than approximate, which makes this the chapter
-where a .NET reader's existing instincts are worth the most. The part worth
-slowing down for is where the hooks run: inside the compiled graph, which is why
-an agent with a full middleware stack can be dropped into a larger graph as a
-single node.
+1.0's flagship extensibility mechanism. The analogy to
+\code{app.Use(async (ctx, next) => ...)} is exact rather than approximate, which
+makes this the chapter where a .NET reader's existing instincts are worth the
+most.
 
-\chapterstub{
-\textbf{Argument.} Middleware is not a second runtime bolted onto the agent. The
-hooks execute inside the LangGraph graph \api{create\_agent} returns, and that is
-what makes composition work --- and what makes Chapter~\ref{ch:stategraph}'s
-material apply to agents you did not build by hand.
+The part worth slowing down for is where the hooks run: \emph{inside} the
+compiled graph, in the nodes that were already there. Middleware adds no nodes.
+That single fact is what lets an agent with a full middleware stack be dropped
+into a larger graph as one node, and it is measured in \S\ref{sec:composition}.
 
-\textbf{Sections.} (7.1) The full signature, argument by argument: model, tools,
-system prompt, middleware, \code{response\_format}, checkpointer, store,
-\code{context\_schema}, name. (7.2) The agent loop, stated precisely, and its
-termination conditions. (7.3) The six hooks and their ordering:
-\code{before\_agent}, \code{before\_model}, \code{wrap\_model\_call},
-\code{after\_model}, \code{wrap\_tool\_call}, \code{after\_agent}. (7.4) The
-built-in catalogue --- summarisation, human-in-the-loop, PII, model and tool call
-limits, model fallback, tool selection --- with a table of when each earns its
-place. (7.5) Writing your own: \code{@dynamic\_prompt}, \code{@wrap\_tool\_call},
-and the decorator versus class forms. (7.6) Ordering effects, worked: the same
-three middleware in two orders, producing two different behaviours. (7.7) The
-ASP.NET Core mapping, in full. (7.8) Proving the composition claim by printing
-the graph and then embedding the agent as a node.
+% ============================================================
+\section{The signature}
+\label{sec:create-agent-signature}
+\index{create\_agent@\texttt{create\_agent}}
 
-\textbf{Listings.} A complete agent with five middleware; an audit middleware
-written from scratch; a middleware ordering demonstration; the agent-as-node
-composition.
+Fourteen parameters, one of them required.
 
-\textbf{Diagrams.} \code{agent-loop} --- the model/tool loop as a flowchart with
-its exits. \code{middleware-onion} --- the hook order drawn as nested scopes
-around one model call. \code{middleware-aspnet} --- the two pipelines side by
-side, ASP.NET Core and LangChain.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Parameter} & \textbf{Purpose} \\
+\midrule
+\code{model} & The only required argument. A model instance, or a provider
+  string. \\[3pt]
+\code{tools} & What the model may call (Chapter~\ref{ch:tools}). \\[3pt]
+\code{system\_prompt} & Static instructions. For dynamic ones, see
+  \S\ref{sec:custom-middleware}. \\[3pt]
+\code{middleware} & The subject of this chapter. Order matters ---
+  \S\ref{sec:hook-order}. \\[3pt]
+\code{response\_format} & Structured output, folded into the loop
+  (Chapter~\ref{ch:tools}). \\[3pt]
+\code{state\_schema} & Extra state fields the graph should carry. \\[3pt]
+\code{context\_schema} & Runtime facts, typed (Chapter~\ref{ch:stategraph}). \\[3pt]
+\code{checkpointer} & Persistence (Chapter~\ref{ch:persistence}). \\[3pt]
+\code{store} & Long-term memory (Chapter~\ref{ch:persistence}). \\[3pt]
+\code{interrupt\_before} / \code{interrupt\_after} & Coarse pause points
+  (Chapter~\ref{ch:interrupts}). \\[3pt]
+\code{cache} & Node caching (Chapter~\ref{ch:persistence}). \\[3pt]
+\code{name} & Identifies the agent when nested or streamed. \\[3pt]
+\code{debug}, \code{transformers} & Diagnostics and stream shaping. \\
+\bottomrule
+\end{tabularx}
+\end{center}
 
-\textbf{Mini-project.} Stage 04: the agent assembled, with audit, PII redaction,
-call limits and an approval gate on the email tool.
+Six of those fourteen are things you already know from Part~III, because
+\api{create\_agent} returns a \api{CompiledStateGraph} and is passing them
+straight through. That is Chapter~\ref{ch:landscape}'s inversion showing up as a
+practical convenience.
 
-\textbf{Source topics covered.} Part~III 3.11--3.13.
-}
+% ============================================================
+\section{The loop}
+\label{sec:agent-loop}
+\index{agent!loop}
+
+The agent is four nodes and one cycle.
+
+\mermaidfig{agent-loop}{%
+  The whole agent. The loop's only exit condition is the model choosing not to
+  ask for anything.}{%
+  The agent loop, its cycle and its single exit.}
+
+\begin{enumerate}[leftmargin=1.4em,nosep]
+\item The model is called with the conversation so far.
+\item If the response contains tool calls, they are executed and their results
+      appended.
+\item Back to step one.
+\item If the response contains no tool calls, the loop ends.
+\end{enumerate}
+
+\begin{warning}
+Read the exit condition again: \emph{the loop terminates when the model stops
+asking}. There is no step budget in the loop itself. An agent whose tool keeps
+returning an error it cannot act on will call the model until
+Chapter~\ref{ch:persistence}'s \code{recursion\_limit} kills the run --- and
+you are billed for every iteration.
+
+The call-limit middleware in \S\ref{sec:builtin} is the specific answer, and it
+is the one piece of middleware that belongs in every production agent regardless
+of what else you add.
+\end{warning}
+
+\begin{note}
+Chapter~\ref{ch:landscape} showed that the node count is four regardless of how
+many tools you add or whether you set a system prompt. This chapter adds the
+stronger version, measured in \S\ref{sec:composition}: it is still four with a
+full middleware stack attached. Middleware does not extend the graph. It runs
+inside it.
+\end{note}
+
+% ============================================================
+\section{The six hooks}
+\label{sec:hooks}
+\index{middleware!hooks}
+
+A middleware is a class with one or more of six methods. Each has an async twin
+with an \code{a} prefix, following the convention from
+Chapter~\ref{ch:models}.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Hook} & \textbf{Runs} & \textbf{Frequency} \\
+\midrule
+\code{before\_agent} & Before anything & Once \\[3pt]
+\code{before\_model} & Before each model call & Per iteration \\[3pt]
+\code{wrap\_model\_call} & Around each model call & Per iteration \\[3pt]
+\code{after\_model} & After each model response & Per iteration \\[3pt]
+\code{wrap\_tool\_call} & Around each tool execution & Per tool call \\[3pt]
+\code{after\_agent} & After the loop ends & Once \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The \code{before\_*} and \code{after\_*} hooks take \code{(state, runtime)} and
+return a state update or \code{None} --- the same shape as an ordinary node. The
+\code{wrap\_*} hooks are different and more powerful: they take a request and a
+\code{handler}, and they decide whether, when and with what to call it.
+
+\begin{python}[caption={The shape of a wrapping hook}, label={lst:wrap-shape}]
+class Audit(AgentMiddleware):
+    name = "audit"
+
+    def wrap_tool_call(self, request, handler):
+        log.info("tool_start", tool=request.tool_call["name"])
+        result = handler(request)          # <- the rest of the pipeline
+        log.info("tool_done", tool=request.tool_call["name"])
+        return result
+\end{python}
+
+\begin{dotnetbox}
+\code{handler(request)} is \code{await next(context)}. The correspondence is
+exact, including the consequences: you may inspect the request before calling
+it, inspect the result after, replace either, or \textbf{not call it at all} ---
+which short-circuits the pipeline exactly as returning without invoking
+\code{next} does in ASP.NET Core. That is how an authorisation middleware refuses
+a tool call, and how a cache returns a stored result without touching the model.
+\end{dotnetbox}
+
+% ============================================================
+\section{Ordering is behaviour}
+\label{sec:hook-order}
+\index{middleware!ordering}
+
+With more than one middleware the order is not cosmetic, and it is not uniform
+across the six hooks. This was measured rather than assumed: two identical
+middleware, \code{A} then \code{B}, each logging every hook.
+
+\begin{console}
+A.before_agent
+B.before_agent
+A.before_model
+B.before_model
+A.wrap_model_call ENTER
+B.wrap_model_call ENTER
+B.wrap_model_call EXIT
+A.wrap_model_call EXIT
+B.after_model
+A.after_model                <- reversed
+A.wrap_tool_call ENTER
+B.wrap_tool_call ENTER
+      >> TOOL BODY
+B.wrap_tool_call EXIT
+A.wrap_tool_call EXIT
+...loop repeats...
+B.after_agent
+A.after_agent                <- reversed
+\end{console}
+
+Three rules, and the third is the one people get wrong:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Hook family} & \textbf{Order with \code{middleware=[A, B]}} \\
+\midrule
+\code{before\_*} & Declaration order: A, then B \\[3pt]
+\code{wrap\_*} & Nested, first-declared outermost: A wraps B wraps the call \\[3pt]
+\code{after\_*} & \textbf{Reverse} declaration order: B, then A \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\mermaidfig{middleware-order}{%
+  The measured order, with the once-per-run and per-iteration phases separated.}{%
+  Hook execution order across two middleware.}
+
+\begin{note}
+That is precisely the semantics of a nested pipeline, and it is what you would
+get by hand if you wrote \code{A(B(call))}. The \code{after\_*} reversal is not a
+quirk --- it is what ``unwinding'' means. It matters because it determines which
+middleware sees the other's modifications: with \code{[PII, Audit]}, the audit
+log records what PII redaction produced; reverse them and it records the raw
+text, which may be the thing you were trying not to write down.
+\end{note}
+
+\begin{warning}
+Note also what repeats. \code{before\_agent} and \code{after\_agent} ran once
+across the whole run; the model hooks ran once per iteration. A token counter in
+\code{after\_model} accumulates per call --- correct. The same logic in
+\code{after\_agent} sees only the final state --- almost certainly not what you
+meant, and it will look right on a single-turn test.
+\end{warning}
+
+\mermaidfig{middleware-aspnet}{%
+  The two pipelines side by side. This is a correspondence, not an analogy.}{%
+  ASP.NET Core middleware and LangChain middleware compared.}
+
+% ============================================================
+\section{The built-in catalogue}
+\label{sec:builtin}
+\index{middleware!built-in}
+
+Sixteen middleware classes ship in the box. The eight that matter most:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Middleware} & \textbf{Use when} \\
+\midrule
+\code{ModelCallLimit} & Always. Cost and runaway-loop protection. \\[3pt]
+\code{ToolCallLimit} & A tool can be called repeatedly and should not be. \\[3pt]
+\code{HumanInTheLoop} & Any irreversible action (Chapter~\ref{ch:interrupts}). \\[3pt]
+\code{PII} & Personal data reaches the provider (Chapter~\ref{ch:security}). \\[3pt]
+\code{Summarization} & Conversations outgrow the window
+  (Chapter~\ref{ch:context}). \\[3pt]
+\code{ContextEditing} & Tool results dominate the window
+  (Chapter~\ref{ch:context}). \\[3pt]
+\code{ModelFallback} & A provider outage should degrade rather than fail. \\[3pt]
+\code{LLMToolSelector} & More than about twenty tools
+  (Chapter~\ref{ch:tools}). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent
+Also present and worth knowing about: model and tool retry, tool error handling,
+a todo list, shell and filesystem tools, and provider-side tool search.
+
+\begin{python}[caption={A production-shaped stack}, label={lst:stack}]
+from langchain.agents import create_agent
+from langchain.agents.middleware import (
+    HumanInTheLoopMiddleware,
+    ModelCallLimitMiddleware,
+    PIIMiddleware,
+    SummarizationMiddleware,
+)
+
+agent = create_agent(
+    model="anthropic:claude-sonnet-4-5",
+    tools=[read_incidents, search_orders, send_email],
+    middleware=[
+        PIIMiddleware("email", strategy="redact"),
+        SummarizationMiddleware(model=cheap_model, trigger=("tokens", 8000)),
+        HumanInTheLoopMiddleware(interrupt_on={"send_email": True}),
+        ModelCallLimitMiddleware(run_limit=15),
+    ],
+)
+\end{python}
+
+\subsection{Three signatures worth checking before you copy them}
+\label{sec:signature-corrections}
+
+Widely circulated examples get these wrong, including the notes this book grew
+from.
+
+\textbf{The call limit has two limits, not one.} There is no \code{limit=}
+parameter. It is \code{thread\_limit} (across the whole conversation) and
+\code{run\_limit} (this invocation), and at least one must be set or it raises.
+\code{exit\_behavior} chooses between \code{'end'} --- stop and inject a message
+saying the limit was hit --- and \code{'error'}, which raises. The distinction
+matters: a chat agent wants a \code{thread\_limit} so a long conversation cannot
+accumulate unbounded cost, while a batch job wants a \code{run\_limit}.
+
+\textbf{Summarisation is triggered by an expression, not a token count.} The
+single-number parameter that circulates in examples does not exist. What the
+constructor takes is \code{trigger}, in one of three forms:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \code{("tokens", 3000)} --- an absolute token threshold
+\item \code{("messages", 50)} --- a message count
+\item \code{("fraction", 0.8)} --- a fraction of the model's own maximum
+\end{itemize}
+
+\medskip
+\noindent
+The fraction form is the one to reach for, because it survives a model change. A
+list of these means OR; a dict means AND. A second parameter, \code{keep},
+controls what survives, defaulting to the last twenty messages.
+
+\textbf{PII redaction is input-only by default.} \code{apply\_to\_input} is
+\code{True}, but \code{apply\_to\_output} and \code{apply\_to\_tool\_results} are
+both \code{False}. If your concern is personal data flowing \emph{out} of a tool
+and into the provider's context, the default does not cover it and you must ask.
+
+\begin{versionbox}
+Signatures in this area are the fastest-moving part of \pkg{langchain}, because
+the middleware surface is the newest. Every one above was read from the installed
+package at the pinned version. Check yours with
+\code{inspect.signature} before trusting an example from anywhere --- including
+this book.
+\end{versionbox}
+
+% ============================================================
+\section{Writing your own}
+\label{sec:custom-middleware}
+
+Two forms. The class form implements one or more hooks; the decorator form wraps
+a single function when that is all you need.
+
+\begin{python}[caption={Authorisation, enforced in code}, label={lst:authz}]
+from langchain.agents.middleware import AgentMiddleware
+
+
+class ToolAuthorisation(AgentMiddleware):
+    name = "tool_authz"
+
+    def wrap_tool_call(self, request, handler):
+        tool_name = request.tool_call["name"]
+        user = request.runtime.context.user_id
+
+        if not permitted(user, tool_name):
+            return ToolMessage(
+                content=f"Not permitted to call {tool_name}.",
+                tool_call_id=request.tool_call["id"],
+            )                              # handler is never called
+
+        return handler(request)
+\end{python}
+
+That is the short-circuit, and it is the whole security argument of
+Chapter~\ref{ch:security} in one listing: the check is in code the model cannot
+reach, and refusing means returning without calling \code{handler}. Note that the
+refusal is returned \emph{as a tool message}, so the model learns it was refused
+and can say so, rather than the run failing.
+
+\begin{python}[caption={The decorator form}, label={lst:decorator}]
+from langchain.agents.middleware import dynamic_prompt
+
+
+@dynamic_prompt
+def personalised(request):
+    prefs = request.runtime.store.get(("prefs", request.runtime.context.user_id))
+    return f"You are an operations assistant. User preferences: {prefs}"
+\end{python}
+
+\code{dynamic\_prompt} is a convenience over \code{wrap\_model\_call}: return a
+string and it becomes the system prompt for that call. It is how a per-user or
+per-tenant prompt is assembled without stringing it together at the call site,
+and it is the correct answer to ``how do I make the system prompt depend on who
+is asking''.
+
+There is a decorator for each of the six hooks, named after it, so a
+single-function middleware never needs a class.
+
+% ============================================================
+\section{The composition claim, measured}
+\label{sec:composition}
+\index{middleware!composition}
+
+The chapter opened by asserting that middleware runs inside the graph rather than
+alongside it. Two measurements settle it.
+
+\textbf{Middleware adds no nodes.} An agent with a middleware stack has the same
+four nodes as one without:
+
+\begin{console}
+nodes with middleware: ['__start__', 'model', 'tools', '__end__']
+\end{console}
+
+\textbf{The whole agent is a node.} Because it is a
+\api{CompiledStateGraph}, it drops into a larger \api{StateGraph} unchanged ---
+middleware, tools, structured output and all:
+
+\begin{python}[caption={An agent as one node of a larger graph}, label={lst:agent-as-node}]
+outer = StateGraph(State)
+outer.add_node("triage", triage)
+outer.add_node("agent", agent)        # the whole agent, middleware included
+outer.add_node("record", record)
+\end{python}
+
+\begin{console}
+outer nodes: ['__start__', 'triage', 'agent', 'record', '__end__']
+outer graph ran: ['pre', 'post']
+\end{console}
+
+The outer graph does not know or care that one of its nodes is an agent, and the
+agent does not know it has been embedded. That is what makes
+Chapter~\ref{ch:multi-agent}'s topologies buildable out of agents rather than out
+of bespoke plumbing.
+
+\begin{note}
+This is also the answer to ``when do I stop using \api{create\_agent}''. You do
+not have to choose globally. A supervisor graph whose workers are
+\api{create\_agent} agents is an entirely normal design: the convenience API for
+the loops, raw \api{StateGraph} for the topology between them.
+\end{note}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch7-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item \api{create\_agent} takes fourteen arguments, six of which it passes
+      straight through to the graph it returns.
+\item The loop exits when the model stops asking for tools. Nothing else bounds
+      it --- add a call limit.
+\item Six hooks, each with an async twin. \code{before\_*}/\code{after\_*} look
+      like nodes; \code{wrap\_*} take a handler and decide whether to call it.
+\item Order is behaviour: \code{before\_*} in declaration order, \code{after\_*}
+      in \textbf{reverse}, \code{wrap\_*} nested with the first-declared
+      outermost.
+\item Agent-level hooks run once; model-level hooks run per iteration. Putting
+      per-call accounting in \code{after\_agent} is a bug that passes a
+      single-turn test.
+\item There is no \code{limit=} on the call-limit middleware; it is
+      \code{thread\_limit} and \code{run\_limit}. Summarisation triggers on an
+      expression, not a token count. PII redaction is input-only by default.
+\item Not calling \code{handler} short-circuits the pipeline. That is how
+      authorisation refuses a tool call --- in code, not in a prompt.
+\item Middleware adds no nodes, and an agent with a full stack is still one node
+      of a larger graph.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Reproduce the ordering trace. Two identical logging middleware, every
+hook, one tool call. Predict the output first --- particularly whether
+\code{after\_model} comes out in declaration order.
+
+\textbf{2.} Put \code{[PII, Audit]} in one order and then the other, and inspect
+what the audit log recorded each time. Decide which order you would defend in a
+review, and write down why.
+
+\textbf{3.} Write an authorisation middleware that refuses one tool. Confirm the
+tool body never executes, and that the model receives the refusal and mentions it
+in its answer rather than the run failing.
+
+\textbf{4.} Put a token counter in \code{after\_model}, then move it to
+\code{after\_agent}. Run a conversation that takes three model calls and compare
+the totals.
+
+\textbf{5.} Print \code{agent.get\_graph().nodes} with no middleware and with
+four. Then embed the agent in a three-node \api{StateGraph} and print that
+graph's nodes.
+
+\textbf{6.} Check the constructor signature of every built-in middleware you
+intend to use, with \code{inspect.signature}. Two of the three in
+\S\ref{sec:signature-corrections} were wrong in the notes this book grew from,
+and they will be wrong in whatever you read next.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 04 --- the agent.} Ops Copilot becomes an agent over the five tools
+from stage 03, with audit, PII redaction, a call limit and an approval gate on
+\code{send\_email}.
+
+The test contract in \code{stages/04-agent-middleware/README.md} asks for the
+sequence rather than the fact: assert the hooks fire in the documented order, not
+merely that each fired. It also requires a test that pins what reordering two of
+them changes --- that is the test that stops someone tidying the list
+alphabetically in six months.
+
+All of it runs against the scripted fake model from stage 03, which must override
+\code{bind\_tools}. Chapter~\ref{ch:interrupts} explains why no in-box fake will
+do.
+\end{projectbox}

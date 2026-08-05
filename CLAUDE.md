@@ -11,20 +11,19 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3, 8, 9, 10** | 2, 4–7, 11–17, stubbed |
+| Chapters | **1, 3, 7, 8, 9, 10** | 2, 4–6, 11–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **140 pages**, **zero
-unresolved references**, **9 overfull hboxes, none above 10 pt**, **zero
-overfull vboxes**. Chapters 1, 3, 8, 9 and 10 are 70 of those pages — half the
-book is now prose rather than scaffolding.
+Build is clean: `latexmk -pdf main.tex` returns 0, **150 pages**, **zero
+unresolved references**, **10 overfull hboxes, none above 10 pt**, **zero
+overfull vboxes**. Six chapters are written and are 80 of those pages.
 
 **Debt ledgers, reported by CI on every build:**
-- 18 chapters and appendices not yet written (`make stubs`)
+- 17 chapters and appendices not yet written (`make stubs`)
 - 0 screenshots requested so far
 - **0 `verifybox` blocks.** Every listing in the written chapters was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 18 Mermaid sources; all render
+- 21 Mermaid sources; all render
 
 **One of the five experiments has been run** (experiment 1, Chapter 3). The other
 four have not. See *Measurement debt* below.
@@ -260,13 +259,14 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Eighteen diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
+Twenty-one diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
 `lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
 `async-gather-vs-taskgroup`, `async-blocking-call`; Chapter 8 uses
 `lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`;
 Chapter 9 uses `lg-replay-boundary`, `lg-checkpointer-vs-store`,
 `lg-durability-modes`; Chapter 10 uses `hitl-interrupt-resume`, `lg-time-travel`,
-`stream-projections`, `double-texting-policies`.
+`stream-projections`, `double-texting-policies`; Chapter 7 uses `agent-loop`,
+`middleware-order`, `middleware-aspnet`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -551,6 +551,53 @@ stream finished without producing a message` — base the harness on
 `__interrupt__` is the reserved key in the returned dict, carrying
 `Interrupt(value=..., id=...)`. `runtime.stream_writer(...)` emits custom events.
 
+### Chapter 7 pass, August 2026
+
+**The last scaffolding-time unknown is resolved.** Every middleware class the
+source document named exists in `langchain.agents.middleware`, and there are
+**sixteen** in total — seven more than it listed: `ModelRetryMiddleware`,
+`ToolRetryMiddleware`, `ToolErrorMiddleware`, `TodoListMiddleware`,
+`ShellToolMiddleware`, `FilesystemFileSearchMiddleware`,
+`ProviderToolSearchMiddleware`. All six hook names confirmed on
+`AgentMiddleware`, each with an `a`-prefixed async twin the source document did
+not mention. There is also a lowercase decorator for each hook plus
+`dynamic_prompt` and `hook_config`.
+
+**Hook ordering, measured — this is the chapter's centrepiece.** With
+`middleware=[A, B]`:
+
+| Hook family | Order |
+|---|---|
+| `before_*` | declaration order — A, then B |
+| `wrap_*` | nested, first-declared outermost — A wraps B wraps the call |
+| `after_*` | **reverse** declaration order — B, then A |
+
+Agent-level hooks run once per run; model-level hooks run once per iteration.
+Exactly ASP.NET Core pipeline semantics, and the `after_*` reversal is the part
+people get wrong. Reuse this table in Appendix B.
+
+**Three signature corrections — the source document was wrong on two.**
+
+- `ModelCallLimitMiddleware` has **no `limit=` parameter**. It is
+  `(thread_limit=None, run_limit=None, exit_behavior='end')`, at least one limit
+  required, and `exit_behavior` is `'end'` or `'error'`. The source document's
+  `ModelCallLimitMiddleware(limit=15)` does not work.
+- `SummarizationMiddleware` has **no `max_tokens_before_summary`**. It is
+  `(model, trigger=None, keep=('messages', 20), ...)` where `trigger` takes
+  `("tokens", N)`, `("messages", N)` or `("fraction", 0.8)`; a list is OR, a
+  dict is AND. Far more expressive than a single number, and `("fraction", ...)`
+  survives a model change.
+- `PIIMiddleware(pii_type, strategy='redact', detector=None, apply_to_input=True,
+  apply_to_output=False, apply_to_tool_results=False)`. The source document's
+  call form is right, but note the defaults: **input only**. Data flowing out of
+  a tool into the provider's context is not covered unless you ask.
+
+**Composition confirmed, twice.** An agent with a middleware stack still has
+exactly four nodes — `['__start__','model','tools','__end__']` — so middleware
+adds none; hooks run inside the existing nodes. And a compiled agent drops into a
+larger `StateGraph` as a single node and runs. That is Chapter 11's foundation:
+topologies built out of agents rather than bespoke plumbing.
+
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during
 an earlier pass.)*
@@ -578,8 +625,6 @@ declares `>=3.10`; `deepagents` declares `>=3.11`. So `\pymin` is correct at
 
 **Not yet verified — do this before writing the chapter that needs it:**
 
-- The exact middleware class names and their import path. The source document
-  lists nine; confirm each exists and confirm the hook names.
 - `ConversationSplitters`-equivalent and the evaluation surface for Chapter 14.
   The source is thin here.
 
