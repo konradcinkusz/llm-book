@@ -1,0 +1,16 @@
+graph TB
+  R["Runnable — one interface, everything implements it"]
+  R --> A["invoke / ainvoke<br/><i>one in, one out</i>"]
+  R --> B["batch / abatch<br/><i>many in, internal concurrency</i>"]
+  R --> C["stream / astream<br/><i>chunks as they arrive</i>"]
+  R --> D["stream_events / astream_events<br/><i>lifecycle, and v3 projections</i>"]
+  R --> E["with_fallbacks / with_retry / with_config<br/><i>wrap it, get a Runnable back</i>"]
+
+  N["THE NAMING RULE:<br/>async = the same name with an 'a' in front.<br/>Learn five methods and one rule and you can<br/>drive anything in the ecosystem — a model, a<br/>tool, a graph, a whole agent."]:::note
+  R -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef hub fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class A,B,C,D,E n
+  class R hub

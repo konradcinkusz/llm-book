@@ -2,47 +2,264 @@
 \label{ch:models}
 
 \begin{quote}\itshape
-One interface, four methods, and an \texttt{a} prefix. That is nearly the whole
-of LCEL.
+One interface, five methods, and an \texttt{a} prefix. That is nearly the whole
+of it.
 \end{quote}
 
 \noindent
-Underneath every component in LangChain is one interface with a small, regular
-surface: \api{invoke}, \api{batch}, \api{stream}, \api{stream\_events}, each with
-an async twin whose name is the same with an \code{a} in front. Learn the four
-and the naming rule and you can drive anything in the library without reading its
-documentation. This chapter also covers the part of 1.0 that quietly removed the
-most code from real projects: standard content blocks.
+Underneath every component in this ecosystem is one interface with a small,
+regular surface. Learn it once and you can drive a model, a tool, a graph or an
+entire agent without reading their documentation --- which is a larger claim than
+it sounds, and it is why Chapter~\ref{ch:landscape} could show you that an agent
+is a \api{Runnable} and have that mean something.
 
-\chapterstub{
-\textbf{Argument.} \api{content\_blocks} is the underrated headline of 1.0.
-Before it, handling reasoning output from one provider and citations from another
-meant provider-specific branching in application code. After it, the same code
-handles both, and the \code{if provider ==} branches disappear.
+This chapter also covers the part of 1.0 that quietly deleted the most code from
+real projects, and which almost nobody lists among the headline features:
+standard content blocks.
 
-\textbf{Sections.} (5.1) \api{init\_chat\_model} and the provider-string form;
-direct construction and when you need it. (5.2) The \api{Runnable} contract:
-the four methods, the async twins, and what \api{batch} does with concurrency.
-(5.3) Composition with LCEL, and an honest note on where LCEL stopped being the
-centre of gravity in 1.0. (5.4) Messages: the five types, and what a
-\api{ToolMessage} is for. (5.5) Standard content blocks --- the normalised
-representation, worked across two providers. (5.6) \api{usage\_metadata} and
-counting what a call cost, which the whole cost story in
-Chapter~\ref{ch:security} depends on. (5.7) Reliability at the model boundary:
-\api{with\_fallbacks}, \code{max\_retries}, and what each one actually retries.
-(5.8) Multimodality: images, audio, documents. (5.9) Reasoning models: reasoning
-content, thinking budgets, and the cost consequence.
+% ============================================================
+\section{The Runnable contract}
+\label{sec:runnable}
+\index{Runnable@\texttt{Runnable}}
 
-\textbf{Listings.} A streaming CLI chat on \api{astream}; the same prompt against
-two providers with identical downstream code, printing normalised blocks; a
-fallback chain that survives a provider outage; token accounting per call.
+\mermaidfig{lc-runnable-surface}{%
+  The whole interface. Everything in the ecosystem implements it.}{%
+  The Runnable surface and the async naming rule.}
 
-\textbf{Diagrams.} \code{lc-runnable-surface} --- the four methods and their
-async twins as one table-diagram. \code{lc-content-blocks} --- provider-specific
-response shapes collapsing into the normalised block list.
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{Sync} & \textbf{Async} & \textbf{Does} \\
+\midrule
+\code{invoke} & \code{ainvoke} & One input, one output \\
+\code{batch} & \code{abatch} & Many inputs, with internal concurrency \\
+\code{stream} & \code{astream} & Chunks as they are produced \\
+\code{stream\_events} & \code{astream\_events} & Lifecycle events, and
+  Chapter~\ref{ch:interrupts}'s v3 projections \\
+\bottomrule
+\end{tabularx}
+\end{center}
 
-\textbf{Mini-project.} Stage 02: a streaming CLI chat against a real provider,
-with token and cost accounting printed per turn.
+\textbf{The naming rule: the async method is the same name with an \code{a} in
+front.} It holds across the whole ecosystem --- \code{ainvoke},
+\code{astream}, \code{aget}, \code{aput}, \code{abefore\_model}. Once you have
+noticed it you stop looking up async variants.
 
-\textbf{Source topics covered.} Part~III 3.3--3.7.
-}
+There are also wrappers that take a \api{Runnable} and return another one:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \code{with\_fallbacks} --- try a different component on failure
+\item \code{with\_retry} --- try the same one again
+\item \code{with\_config} --- pin configuration
+\item \code{bind} --- fix an argument
+\end{itemize}
+
+\medskip
+\noindent
+That closure property is what makes composition work at all.
+
+\begin{dotnetbox}
+The closest analogue is \code{IEnumerable<T>} and LINQ: one small interface that
+everything implements, plus operators that take one and return another. The
+payoff is the same --- you learn the shape once rather than learning each
+component separately.
+\end{dotnetbox}
+
+\begin{warning}
+\code{batch} runs its inputs concurrently \emph{internally}, which is convenient
+and is also an unbounded fan-out at your provider. Chapter~\ref{ch:asyncio}
+measured what a cap costs and Chapter~\ref{ch:serving} explains why it must be
+sized per process. Use \code{max\_concurrency} in the config, or do not use
+\code{batch} for anything large.
+\end{warning}
+
+% ============================================================
+\section{Choosing a model}
+\label{sec:init-chat-model}
+\index{init\_chat\_model@\texttt{init\_chat\_model}}
+
+\begin{python}[caption={Two ways to name a model}, label={lst:init-model}]
+from langchain.chat_models import init_chat_model
+
+model = init_chat_model("anthropic:claude-sonnet-4-5", temperature=0)
+
+# or directly, when you need provider-specific arguments
+from langchain_anthropic import ChatAnthropic
+model = ChatAnthropic(model="claude-sonnet-4-5", max_tokens=4096)
+\end{python}
+
+The \code{provider:model} string form is the one to prefer in application code,
+because the provider becomes configuration rather than an import. Each provider
+lives in its own distribution --- \pkg{langchain-openai},
+\pkg{langchain-anthropic} and so on --- which is why
+Chapter~\ref{ch:landscape}'s package map has a whole category for them.
+
+\begin{note}
+Provider-neutral is a real property of this ecosystem and it is worth preserving
+deliberately. Every listing in this book works against any provider with tool
+calling. The mini-project reads its provider from configuration and nothing in
+\code{src/} imports a provider package directly.
+\end{note}
+
+% ============================================================
+\section{Messages, and the thing 1.0 fixed}
+\label{sec:content-blocks}
+\index{content\_blocks@\texttt{content\_blocks}}
+
+Five message types --- system, human, AI, tool, and function (legacy). The
+interesting part is what an \api{AIMessage} carries:
+
+\begin{python}[caption={What comes back}, label={lst:message-surface}]
+response.text              # the text, as a string
+response.content_blocks    # normalised blocks -- the 1.0 addition
+response.tool_calls        # what the model wants to run
+response.usage_metadata    # input/output tokens -- the whole cost story
+\end{python}
+
+\begin{console}
+>>> AIMessage(content="hello").content_blocks
+[{'type': 'text', 'text': 'hello'}]
+\end{console}
+
+\mermaidfig{lc-content-blocks}{%
+  What \api{content\_blocks} removed: the provider-shaped branch in your
+  application.}{%
+  Provider-specific responses normalised into content blocks.}
+
+Before 1.0, handling reasoning output from one provider and citations from
+another meant provider-specific branching in application code, because
+\code{content} was a string for some providers and a list of dictionaries for
+others. \api{content\_blocks} normalises it: \code{text}, \code{reasoning},
+\code{citation}, \code{tool\_call} and the multimodal types, with the same shape
+regardless of who produced them.
+
+\begin{note}
+This is the underrated headline of 1.0. It is not a new capability --- it is the
+deletion of a category of code. If you are migrating and you have a module named
+something like \code{response\_parsing.py} with a branch per provider, it exists
+to solve a problem that no longer exists.
+\end{note}
+
+\subsection{Counting what it cost}
+\label{sec:usage-metadata}
+\index{cost!usage metadata}
+
+\code{usage\_metadata} carries input and output token counts per call. It is the
+foundation of everything in Chapter~\ref{ch:context} and
+Chapter~\ref{ch:security}, and it costs nothing to record.
+
+\begin{warning}
+Put cost accounting in from the first model call, not later. Chapter~\ref{ch:context}
+measured a 5$\times$ difference between context strategies --- a difference you
+cannot see, let alone act on, without per-call token counts already being
+recorded. Retrofitting them means re-running everything you wanted to compare.
+\end{warning}
+
+% ============================================================
+\section{Reliability at the model boundary}
+\label{sec:fallbacks}
+\index{with\_fallbacks@\texttt{with\_fallbacks}}
+
+\begin{python}[caption={Degrading instead of failing}, label={lst:fallbacks}]
+robust = primary.with_fallbacks([secondary, tertiary])
+\end{python}
+
+Fallbacks fire on exception: if the primary raises, the next is tried with the
+same input. \code{with\_retry} retries the \emph{same} model, which is the right
+response to a transient error and the wrong response to an outage.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Failure} & \textbf{Answer} \\
+\midrule
+Transient error, rate limit & \code{with\_retry}, or the provider client's own
+  retry --- with jitter (Chapter~\ref{ch:serving}) \\[3pt]
+Provider outage & \code{with\_fallbacks} to a different provider \\[3pt]
+Context overflow & Chapter~\ref{ch:context}, not a retry \\[3pt]
+The model answered badly & Evaluation (Chapter~\ref{ch:observability}), not a
+  retry \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Chapter~\ref{ch:agents}'s model-fallback middleware does the same thing inside an
+agent loop, which is where you usually want it.
+
+\begin{warning}
+A fallback to a cheaper or weaker model silently changes your quality
+distribution, and it does so exactly when you are least able to notice --- during
+an incident. Record which model actually answered, and make it a dimension in
+your evaluation set (Chapter~\ref{ch:observability}).
+\end{warning}
+
+% ============================================================
+\section{Streaming, multimodality and reasoning}
+\label{sec:streaming-basics}
+
+\begin{python}[caption={The smallest streaming loop}, label={lst:astream}]
+async for chunk in model.astream(messages):
+    print(chunk.text, end="", flush=True)
+\end{python}
+
+That is the primitive; Chapter~\ref{ch:interrupts} builds the agent-level
+projections on top of it, and Chapter~\ref{ch:serving} puts it behind HTTP.
+
+\textbf{Multimodality} arrives through the same content blocks: an image or a
+document is a block in the message rather than a separate API. Which providers
+accept which block types varies, and that is one of the few places where the
+abstraction genuinely leaks --- Appendix~\ref{app:packages} has the matrix.
+
+\textbf{Reasoning models} return their thinking as a \code{reasoning} block. Two
+things follow that are easy to miss: reasoning tokens are \emph{billed}, and they
+are usually not what you want to show a user. Read the block type rather than
+concatenating everything in \code{content}.
+
+\begin{versionbox}
+Reasoning-model surfaces are the fastest-moving part of the provider integrations
+--- budgets, block names and billing treatment have all changed within the 1.x
+line. Check your provider package's release notes rather than trusting a
+six-month-old example, including this one.
+\end{versionbox}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch5-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item One interface; the async twin is the same name with an \code{a} in front.
+\item Wrappers return \api{Runnable}s, which is what makes composition work.
+\item \code{batch} is an unbounded fan-out unless you cap it.
+\item \api{content\_blocks} normalises provider differences. If you have a
+      per-provider parsing module, delete it.
+\item Record \code{usage\_metadata} from the first call. You cannot retrofit a
+      cost comparison.
+\item \code{with\_retry} for transient errors, \code{with\_fallbacks} for
+      outages. Record which model answered.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Send the same prompt to two providers and print
+\code{content\_blocks} from each. Confirm one code path handles both.
+
+\textbf{2.} Build a token-and-cost accumulator over \code{usage\_metadata} and
+run a five-turn conversation through it. Compare the total against your
+intuition; most people underestimate, because of
+Chapter~\ref{ch:context}'s re-sending.
+
+\textbf{3.} Wrap a model in \code{with\_fallbacks} to a deliberately broken one,
+then reverse the order. Confirm you can tell from the output which answered.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 02 --- streaming CLI chat.} The first real model call: a
+command-line chat on \code{astream}, printing tokens as they arrive and
+reporting tokens and cost per turn.
+
+The contract in \code{stages/02-streaming-chat/README.md} asks that streamed
+chunks assemble into the same message the non-streamed call returns, tested
+against a fake --- and that nothing reads \code{content} as a string when
+\code{content\_blocks} is available.
+\end{projectbox}

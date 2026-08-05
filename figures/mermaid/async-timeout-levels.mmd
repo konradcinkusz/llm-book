@@ -1,0 +1,18 @@
+graph TB
+  R["RUN timeout — the whole request<br/>asyncio.timeout(120)"]
+  R --> N["NODE timeout — one node attempt<br/>add_node(..., timeout=30)<br/><i>async nodes only</i>"]
+  N --> M["MODEL timeout — one provider call<br/>the client's own timeout, 15s"]
+  M --> W["the actual HTTP request"]
+
+  NOTE["Each larger than the one inside it.<br/><br/>Run timeout alone: one wedged provider<br/>call eats the entire budget.<br/>Model timeout alone: the agent loops<br/>forever in well-behaved steps."]
+
+  R -.- NOTE
+
+  classDef outer fill:#E8F0F5,stroke:#1F4E79
+  classDef mid fill:#F4F6F8,stroke:#1F4E79
+  classDef inner fill:#E8F4F0,stroke:#0E7C7B
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class R outer
+  class N mid
+  class M,W inner
+  class NOTE note

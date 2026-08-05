@@ -1,0 +1,18 @@
+sequenceDiagram
+  autonumber
+  participant P as Parent
+  participant T as Task
+  participant C as Cleanup
+
+  P->>T: create_task(work())
+  Note over T: running, hits an await
+  P->>T: task.cancel()
+  Note over T: CancelledError is INJECTED<br/>at the next await point —<br/>not a flag you poll
+  T->>C: except CancelledError: cleanup
+  C-->>T: done
+  T->>P: raise (re-raised)
+  Note over P: cancellation acknowledged.<br/>The task tree unwinds.
+
+  rect rgb(251, 233, 233)
+    Note over T,P: IF YOU SWALLOW IT INSTEAD:<br/>the task reports success, the parent<br/>believes the work completed, and<br/>the server will not shut down.
+  end
