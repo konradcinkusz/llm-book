@@ -95,20 +95,31 @@
 </table>
 </div>
 
-<h2>Five experiments, one run</h2>
+<h2>Five experiments, two and a half run</h2>
 <p>
   The differentiator is meant to be original measurement rather than assertion.
-  Five experiments are fully specified in the chapters; one has been run.
-  Chapter 3's is done and reproducible in thirty seconds with no provider: twenty
-  requests, 100&nbsp;ms server delay, median of ten trials — sequential 2.039&nbsp;s,
-  <code>gather</code> 0.126&nbsp;s, <code>TaskGroup</code> 0.125&nbsp;s, capped at
-  five 0.421&nbsp;s. A 16× difference from a one-line change, and the two
-  concurrent forms are indistinguishable on speed.
+  Five experiments are specified; two and a half have been run, and every claim
+  resting on the others stays explicitly labelled as judgement.
 </p>
+<div class="scroll">
+<table>
+  <tr><th>Ch. 3 — concurrency</th><td>20 requests over real sockets: sequential
+    2.039&nbsp;s, <code>gather</code> 0.126&nbsp;s, <code>TaskGroup</code>
+    0.125&nbsp;s, capped-at-5 0.421&nbsp;s. <strong>16×</strong> from a one-line
+    change, and the two concurrent forms are indistinguishable.</td></tr>
+  <tr><th>Ch. 13 — service</th><td>FastAPI under uvicorn, mocked provider. 1→40
+    concurrent: p50 flat at ~103&nbsp;ms, throughput 10→349/s. One request in
+    twenty blocking cost <strong>44% of throughput</strong> and degraded the
+    nineteen that were innocent.</td></tr>
+  <tr><th>Ch. 11 — topologies</th><td>Structural half only. Model calls: single
+    agent 2, pipeline/swarm 3, orchestrator and supervisor 5. Three of a
+    supervisor's five calls are routing rather than work. The quality half still
+    needs a provider.</td></tr>
+</table>
+</div>
 <p>
-  The largest compares a single agent against all five multi-agent topologies on
-  one fixed task — turn count, token cost, latency and success rate, twenty runs
-  each, medians and spreads rather than best runs.
+  Still outstanding: cost across four context strategies, tool-selection accuracy,
+  and whether a supervisor actually answers better than a single agent.
 </p>
 
 <h2>The mini-project</h2>
