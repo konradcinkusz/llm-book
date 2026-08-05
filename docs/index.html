@@ -60,9 +60,9 @@
 </p>
 
 <div class="banner">
-  <strong>Chapter 1 is written. Chapters 2–17 are not.</strong> The structure,
-  build and diagram pipeline are in place and the book compiles clean at 87
-  pages. Every unwritten chapter prints a visible <em>not yet written</em> marker
+  <strong>Chapters 1 and 3 are written. The rest are not.</strong> The
+  structure, build and diagram pipeline are in place and the book compiles clean
+  at 101 pages. Every unwritten chapter prints a visible <em>not yet written</em> marker
   carrying its own brief, and CI publishes the count on every build — so the page
   count never flatters the state of the work.
 </div>
@@ -95,12 +95,15 @@
 </table>
 </div>
 
-<h2>Five experiments, none yet run</h2>
+<h2>Five experiments, one run</h2>
 <p>
   The differentiator is meant to be original measurement rather than assertion.
-  Five experiments are fully specified in the chapters and none has been run.
-  Appendix B's tables are deliberately empty and stay that way until they have
-  been; until then every comparative claim is explicitly labelled as judgement.
+  Five experiments are fully specified in the chapters; one has been run.
+  Chapter 3's is done and reproducible in thirty seconds with no provider: twenty
+  requests, 100&nbsp;ms server delay, median of ten trials — sequential 2.039&nbsp;s,
+  <code>gather</code> 0.126&nbsp;s, <code>TaskGroup</code> 0.125&nbsp;s, capped at
+  five 0.421&nbsp;s. A 16× difference from a one-line change, and the two
+  concurrent forms are indistinguishable on speed.
 </p>
 <p>
   The largest compares a single agent against all five multi-agent topologies on

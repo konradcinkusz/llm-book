@@ -12,15 +12,15 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **Chapter 1 is written. Chapters 2–17 are not.** The structure, build and
-> diagram pipeline are in place and the book compiles clean at 87 pages. Every
+> **Chapters 1 and 3 are written. The rest are not.** The structure, build and
+> diagram pipeline are in place and the book compiles clean at 101 pages. Every
 > unwritten chapter prints a visible *NOT YET WRITTEN* box carrying its own
 > brief, and CI reports the count on every build, so the page count never
 > flatters the state of the work.
 >
-> Every listing in Chapter 1 was executed against the pinned versions, so the
-> chapter carries no *run this before you trust it* markers. That is the standard
-> the rest of the book is held to.
+> Every listing in both written chapters was executed against the pinned
+> versions, so neither carries a *run this before you trust it* marker. That is
+> the standard the rest of the book is held to.
 
 ---
 
@@ -58,17 +58,31 @@ which over ninety per cent of wall-clock time is spent waiting on a network, and
 the interesting failure modes — a swallowed cancellation, an unbounded queue, a
 blocking call in a coroutine — show up in production rather than in a notebook.
 
-### Five experiments, none yet run
+### Five experiments, one run
 
 The book's differentiator is meant to be original measurement rather than
-assertion. Five experiments are fully specified in the chapters and **none has
-been run**; Appendix B's tables are deliberately empty and stay that way until
-they have been. Until then every comparative claim is explicitly labelled as
-judgement.
+assertion. Five experiments are fully specified in the chapters; **one has been
+run.** Until an experiment runs, every claim it would support is explicitly
+labelled as judgement and Appendix B's table for it stays empty.
 
-The largest is a comparison of a single agent against all five multi-agent
-topologies on one fixed task — turn count, token cost, latency and success rate,
-twenty runs each, medians and spreads rather than best runs.
+**Experiment 1 (Chapter 3)** is done and reproducible in thirty seconds with no
+provider — twenty requests against a localhost server with a fixed 100 ms delay,
+median of ten trials:
+
+| Strategy | Median | Round trips |
+|---|---|---|
+| Sequential | 2.039 s | 20.4× |
+| `gather` | 0.126 s | 1.3× |
+| `TaskGroup` | 0.125 s | 1.2× |
+| Capped at 5 | 0.421 s | 4.2× |
+
+A 16× difference from a one-line change — and `gather` and `TaskGroup` are
+indistinguishable, so that choice is about failure semantics and never about
+speed.
+
+The largest experiment still outstanding compares a single agent against all
+five multi-agent topologies on one fixed task — turn count, token cost, latency
+and success rate, twenty runs each, medians and spreads rather than best runs.
 
 ---
 

@@ -1,0 +1,16 @@
+sequenceDiagram
+  autonumber
+  participant R1 as 10 healthy requests
+  participant L as Event loop
+  participant B as one coroutine calling<br/>a blocking library
+
+  Note over L: measured: worst healthy request = 50 ms
+  R1->>L: await (yield)
+  L->>B: resume
+  B->>B: time.sleep(0.5) — no await
+  Note over L,B: the loop cannot run ANYTHING.<br/>Not this request. Not the other ten.
+  B-->>L: returns after 500 ms
+  L->>R1: resume, far too late
+  Note over L: measured: worst healthy request = 500 ms
+
+  Note over B: fix: await asyncio.to_thread(blocking_call)<br/>measured: back to 51 ms

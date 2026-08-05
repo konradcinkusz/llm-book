@@ -6,47 +6,713 @@ A coroutine is cold. That one sentence accounts for half the bugs.
 \end{quote}
 
 \noindent
-If you write \code{async}/\code{await} in C\#, you already have the concepts. What
-you do not have are Python's defaults, and they differ in ways that turn correct
-C\# instincts into wrong Python code. A \code{Task} in .NET is usually already
-running; a coroutine in Python has not started and will not start until something
-awaits it or wraps it. There is one event loop per thread, no synchronisation
-context, and no \code{ConfigureAwait} to reason about --- and one blocking call
-anywhere stops the entire process, not one request.
+If you write \code{async}/\code{await} in C\#, you already hold the concepts.
+What you do not hold are Python's defaults, and they differ in ways that turn
+correct C\# instincts into wrong Python code. A \code{Task} in .NET is usually
+already running. A coroutine in Python has not started, and will not start until
+something awaits it or hands it to the loop. There is one event loop per thread,
+no synchronisation context, and no \code{ConfigureAwait} to reason about. And one
+blocking call anywhere stops the entire process, not one request.
 
-\chapterstub{
-\textbf{Argument.} \code{asyncio} gives interleaving, not parallelism, and the
-agent workload is the case where interleaving is exactly what you want. The
-chapter earns that claim with a measurement rather than asserting it.
+This chapter earns its claims with numbers rather than assertions. Every
+measurement in it was run on the machine that produced this book, costs nothing,
+needs no provider, and takes under a minute to reproduce.
 
-\textbf{Sections.} (3.1) The event loop: single-threaded, cooperative, switching
-only at \code{await}. (3.2) The GIL, honestly --- what it does, when it costs you,
-and the free-threaded build as a footnote rather than a solution. (3.3)
-Coroutines, tasks and futures; why \code{for url in urls: await fetch(url)} is a
-sequence. (3.4) \code{gather} vs \code{TaskGroup} vs \code{wait} vs
-\code{as\_completed}: four tools with four different failure semantics, in a
-table and then in code. (3.5) Structured concurrency as a design philosophy, not
-a library feature. (3.6) Synchronisation: \code{Lock}, \code{Semaphore},
-\code{Event}, \code{Queue}, and bounded queues as backpressure. (3.7) Async
-generators and async context managers; \code{aclosing}. (3.8) Blocking code:
-\code{to\_thread}, \code{run\_in\_executor}, \code{ProcessPoolExecutor} --- and
-how to decide which.
+% ============================================================
+\section{The event loop}
+\label{sec:event-loop}
+\index{asyncio!event loop}
+\index{concurrency!cooperative}
 
-\textbf{Listings.} The eight core patterns from the source, each runnable; a
-sequential-vs-concurrent benchmark with real numbers; a bounded
-producer/consumer with graceful shutdown; a \code{Semaphore}-limited fan-out.
+One thread. One loop. It runs one piece of your code at a time and switches
+between pieces \emph{only} at an \code{await}.
 
-\textbf{Diagrams.} \code{async-event-loop} --- a sequence diagram of two
-coroutines interleaving at await points. \code{async-cold-coroutine} --- coroutine
-vs task lifecycle, side by side. \code{async-gather-vs-taskgroup} --- what
-happens to sibling tasks when one raises, under each primitive.
+That is the whole model, and two consequences fall out of it immediately.
 
-\textbf{Measurement.} Sequential vs \code{gather} vs \code{TaskGroup} over twenty
-HTTP calls with a fixed artificial latency: wall-clock median over ten runs.
-Cheap, reproducible on any machine, and it makes the I/O-bound argument concrete.
+\textbf{You never need a lock to protect a critical section that contains no
+\code{await}.} Between two await points your code is atomic with respect to
+every other coroutine, because none of them can run. This is a genuine
+simplification over threaded code and it is worth internalising early.
 
-\textbf{Mini-project.} Stage 01: a concurrency playground --- twenty concurrent
-requests capped at five, a bounded queue, clean shutdown --- with tests.
+\textbf{Code that never awaits never yields.} A coroutine that computes for two
+seconds without awaiting holds the loop for two seconds, and every other request
+in the process waits. There is no pre-emption. The scheduler is cooperative,
+which is a polite way of saying it cannot help you.
 
-\textbf{Source topics covered.} Part~II 2.1--2.3, 2.6--2.8, 2.15.
-}
+\mermaidfig{async-event-loop}{%
+  Two coroutines interleaving. Neither runs faster than it would alone; they
+  overlap their \emph{waiting}, which is the only thing \code{asyncio}
+  optimises.}{%
+  Sequence diagram of two coroutines interleaving at await points.}
+
+\begin{dotnetbox}
+Closest analogue: a single-threaded \code{SynchronizationContext} that never
+posts to a thread pool. The instinct that \code{await} might resume you on a
+different thread does not apply --- in a normal \code{asyncio} program there is
+only ever one thread running your coroutines, so the whole category of ``which
+thread am I on'' questions disappears, and with it \code{ConfigureAwait}.
+\end{dotnetbox}
+
+% ============================================================
+\section{The GIL, honestly}
+\label{sec:gil}
+\index{GIL}
+\index{concurrency!versus parallelism}
+
+The Global Interpreter Lock permits one thread at a time to execute Python
+bytecode. It is the most discussed and least usefully understood thing about the
+language, so here it is as a measurement rather than an argument.
+
+The workload below is pure arithmetic --- no I/O, nothing that releases the lock.
+One unit of it takes 0.29\,s on its own. Four units are then run three ways, on a
+four-core machine:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrX@{}}
+\toprule
+\textbf{Four CPU-bound units} & \textbf{Wall clock} & \textbf{Relative to one unit} \\
+\midrule
+One unit, alone & 0.29\,s & 1.0$\times$ --- the baseline \\
+Four threads & 1.09\,s & 3.7$\times$ --- essentially serialised \\
+Four processes & 0.29\,s & 1.0$\times$ --- genuinely parallel \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent
+Four threads took 3.7 times as long as one unit. Perfect serialisation would be
+4.0. Threads bought approximately nothing, because only one of them could
+execute bytecode at a time. Four processes took exactly as long as a single unit,
+because each process holds its own interpreter and its own lock.
+
+\begin{note}
+The rule that follows is short. \textbf{I/O-bound work} --- model calls, HTTP,
+databases, file reads --- is what \code{asyncio} is for, and it scales
+beautifully, as \S\ref{sec:measurement} shows. \textbf{CPU-bound work} --- local
+embeddings, parsing a large PDF, compression --- needs \emph{processes}. Threads
+are for blocking I/O in a library that has no async version, and for nothing
+else.
+
+Blocking I/O calls release the GIL while they wait, which is precisely why a
+thread is the right tool there and the wrong tool for arithmetic.
+\end{note}
+
+\begin{versionbox}
+Python 3.13 introduced an experimental free-threaded build without the GIL. It
+is worth knowing about and it is not yet a production answer for this workload:
+single-threaded performance is lower, and much of the ecosystem's C extension
+surface has not been validated against it. Mention it as awareness of where the
+language is going, not as something you have deployed.
+\end{versionbox}
+
+% ============================================================
+\section{Coroutines, tasks and futures}
+\label{sec:cold-coroutine}
+\index{coroutine!cold}
+\index{asyncio!create\_task}
+
+This is the section that pays for the chapter.
+
+\begin{python}[caption={A coroutine does not start when you create it}, label={lst:cold}]
+async def work(tag, out):
+    out.append(tag)          # a visible side effect, on the first line
+    return tag
+
+
+async def main():
+    out = []
+    coro = work("coro", out)
+    print("after creating the coroutine :", out)
+    await asyncio.sleep(0)               # let the loop run anything it can
+    print("after a loop tick            :", out)
+    await coro
+    print("after awaiting               :", out)
+\end{python}
+
+\begin{console}
+after creating the coroutine : []
+after a loop tick            : []
+after awaiting               : ['coro']
+\end{console}
+
+Calling \code{work(...)} produced an object and ran none of the function. Not one
+line. The side effect on the first line of the body did not happen, and a full
+turn of the event loop did not make it happen. Only \code{await} did.
+
+\begin{dotnetbox}
+This is the largest behavioural difference from .NET, and it runs the opposite
+way to your instincts. \code{async Task<T> Foo()} in C\# begins executing
+synchronously the moment you call it, up to its first incomplete await; the
+\code{Task} you get back is usually already in flight. In Python nothing is in
+flight until you say so.
+
+The practical consequence: in C\#, forgetting to await a \code{Task} still
+performs the work and merely loses the result. In Python, forgetting to await a
+coroutine performs \emph{no work at all}, and warns you at garbage-collection
+time if you happen to be looking.
+\end{dotnetbox}
+
+\subsection{What \texorpdfstring{\code{create\_task}}{create-task} actually does}
+\label{sec:create-task}
+
+The usual advice is that \code{create\_task} ``starts it immediately, in the
+background''. That is close enough to be useful and wrong enough to mislead when
+you are reasoning about ordering:
+
+\begin{python}[caption={\code{create\_task} schedules; it does not execute}, label={lst:create-task}]
+out = []
+t = asyncio.create_task(work("task", out))
+print("after create_task, before any tick :", out)
+await asyncio.sleep(0)
+print("after one loop tick                :", out)
+\end{python}
+
+\begin{console}
+after create_task, before any tick : []
+after one loop tick                : ['task']
+\end{console}
+
+It hands the coroutine to the loop and returns immediately. The body still does
+not run until the current coroutine yields --- which here happens at the
+\code{sleep(0)}. The difference from a bare coroutine is not that it runs
+sooner. It is that it will run \emph{without anyone awaiting it}.
+
+\mermaidfig{async-cold-coroutine}{%
+  The three states worth distinguishing, and the consequence at the bottom that
+  costs people the most time.}{%
+  Coroutine versus task lifecycle, and the sequential-loop trap.}
+
+\subsection{The consequence}
+\label{sec:sequential-trap}
+
+\begin{python}[caption={A queue wearing the costume of concurrency}, label={lst:seq-trap}]
+# Sequential. Each iteration waits for the previous one to finish.
+for url in urls:
+    await fetch(url)
+
+# Concurrent. All of them are in flight before any of them completes.
+await asyncio.gather(*(fetch(url) for url in urls))
+\end{python}
+
+The first form is not a subtly worse version of the second. It is twenty times
+slower for twenty URLs, and \S\ref{sec:measurement} measures exactly that.
+
+\begin{warning}
+This is the most common performance defect in async Python, and it is invisible
+in review because both forms read as ``asynchronous''. The tell is \code{await}
+\emph{inside} a loop body over independent work. Awaiting in a loop is correct
+when each iteration depends on the last; it is a defect when they do not.
+\end{warning}
+
+% ============================================================
+\section{Four ways to run things together}
+\label{sec:four-ways}
+\index{asyncio!gather}
+\index{asyncio!TaskGroup}
+\index{structured concurrency}
+
+Four primitives with four different failure semantics. The differences only show
+up when something raises, which is exactly when you need to already know them.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Primitive} & \textbf{On the first exception} \\
+\midrule
+\code{gather} & Propagates it. Siblings are \emph{not} cancelled and keep
+running. \\[4pt]
+\code{gather} with \code{return\_exceptions} & Nothing propagates. Exceptions
+arrive as ordinary items in the result list. \\[4pt]
+\code{TaskGroup} & Cancels every sibling, waits for all of them, then raises an
+\code{ExceptionGroup}. \\[4pt]
+\code{as\_completed} & Yields results in completion order; each exception
+surfaces when you await that result. \\[4pt]
+\code{wait} & Returns \code{(done, pending)} and raises nothing. You inspect and
+clean up yourself. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The difference that matters}
+\label{sec:gather-vs-taskgroup}
+
+The \code{gather} row says siblings keep running. That is worth seeing, because
+``keeps running'' means ``after your error handler has already run'':
+
+\begin{python}[caption={Same failure, two primitives, two outcomes}, label={lst:gather-vs-tg}]
+async def boom(log):
+    await asyncio.sleep(0.05)
+    log.append("boom raised")
+    raise ValueError("boom")
+
+
+async def slow(name, delay, log):
+    try:
+        await asyncio.sleep(delay)
+        log.append(f"{name} finished")
+    except asyncio.CancelledError:
+        log.append(f"{name} CANCELLED")
+        raise
+
+
+# --- with gather ---
+try:
+    await asyncio.gather(boom(log), slow("sibling", 0.3, log))
+except ValueError as e:
+    log.append(f"gather propagated {e!r}")
+await asyncio.sleep(0.4)        # wait around and watch what happens
+
+# --- with TaskGroup ---
+try:
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(boom(log))
+        tg.create_task(slow("sibling", 0.3, log))
+except* ValueError as eg:
+    log.append(f"ExceptionGroup with {len(eg.exceptions)}")
+\end{python}
+
+\begin{console}
+=== gather ===
+   boom raised
+   gather propagated ValueError('boom')
+   sibling finished          <-- after the handler. Nobody is listening.
+=== TaskGroup ===
+   boom raised
+   sibling CANCELLED
+   ExceptionGroup with 1
+\end{console}
+
+Under \code{gather}, the sibling completed \emph{after} the exception had been
+caught and handled. In a request handler that is a task still holding a database
+connection and still writing to state belonging to a request that has already
+failed and returned. Under \code{TaskGroup} it was cancelled, and the block did
+not exit until it had finished being cancelled.
+
+\mermaidfig{async-gather-vs-taskgroup}{%
+  The orphaning, drawn. The branch marked in red is the one that causes
+  production incidents, because it no longer has any relationship to the caller.}{%
+  What happens to sibling tasks when one raises, under each primitive.}
+
+\subsection{Structured concurrency}
+\label{sec:structured-concurrency}
+
+\code{TaskGroup} is not a nicer \code{gather}. It is an instance of a design
+principle worth adopting deliberately: \textbf{a task may not outlive the block
+that created it.}
+
+That single rule eliminates a whole category of bug. No orphans. No leaked work
+after a failure. No task quietly holding a connection open after its request has
+gone. When control leaves the \code{async with}, every task started inside it has
+finished --- successfully, or by being cancelled and having its cleanup run.
+
+\begin{note}
+Prefer \code{TaskGroup} in new code. Reach for \code{gather} in two cases: when
+partial failure is acceptable and you want \code{return\_exceptions} semantics so
+you can inspect each result; and when you need results as an ordered list
+corresponding to the inputs, which \code{gather} gives you and \code{TaskGroup}
+does not.
+
+\code{TaskGroup} and \code{except*} require Python 3.11. This book assumes it.
+\end{note}
+
+\subsection{Completion order, and the low-level option}
+\label{sec:as-completed}
+
+\code{as\_completed} yields results as they finish, not in submission order:
+
+\begin{python}[caption={Completion order, not submission order}, label={lst:as-completed}]
+for fut in asyncio.as_completed([took("slow", 0.3), took("fast", 0.05),
+                                 took("mid", 0.15)]):
+    print(await fut)
+\end{python}
+
+\begin{console}
+fast
+mid
+slow
+\end{console}
+
+That is the one to reach for when you want to start showing results before the
+slowest branch finishes --- a retrieval fan-out where the first useful document
+should appear immediately rather than after the slow shard replies.
+
+\code{wait} is the low-level primitive. It raises nothing, returns two sets, and
+leaves cancellation and cleanup to you. It is right when you genuinely want
+``give me whatever is done after two seconds and let me decide about the rest'',
+and it is the wrong default because that decision is then one you must remember
+to make.
+
+% ============================================================
+\section{The measurement}
+\label{sec:measurement}
+\index{measurement!concurrency}
+
+The claim under test: an I/O-bound workload interleaves almost perfectly under
+\code{asyncio}, and the ceiling is whatever cap you impose rather than anything
+about the machine.
+
+\textbf{Method.} A real HTTP server on \code{localhost}, hand-rolled directly on
+the standard library's stream-server API so that what is measured is
+unambiguous: read a request, wait 100\,ms, reply. Twenty requests per trial over
+one shared \code{httpx.AsyncClient} with a warmed connection pool. One warm-up
+trial discarded, then ten timed trials; the median is reported. The script is
+\code{code/ch03/bench\_concurrency.py} and runs in about thirty seconds.
+
+Deliberately \emph{not} measured with \code{asyncio.sleep} on the client side.
+Sleeping demonstrates that the scheduler can schedule; it says nothing about
+sockets, and it would flatter the result.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrrrX@{}}
+\toprule
+\textbf{Strategy} & \textbf{Median} & \textbf{Min} & \textbf{Max} & \textbf{Round trips} \\
+\midrule
+Sequential & 2.039\,s & 2.037 & 2.041 & 20.4$\times$ \\
+\code{gather} & 0.126\,s & 0.124 & 0.132 & 1.3$\times$ \\
+\code{TaskGroup} & 0.125\,s & 0.124 & 0.128 & 1.2$\times$ \\
+Capped at 5 & 0.421\,s & 0.420 & 0.424 & 4.2$\times$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent
+Twenty requests, 100\,ms server delay. ``Round trips'' is the median divided by
+one round trip, which is the useful unit because it is machine-independent.
+
+Four things are worth drawing out.
+
+\textbf{Sequential cost 20.4 round trips for 20 requests.} It is a queue. The
+theoretical floor is 20 and it hit 20.4, so essentially all of the elapsed time
+was server delay and almost none of it was overhead.
+
+\textbf{Concurrent cost 1.3 round trips.} The floor is 1. Twenty simultaneous
+requests finished in very slightly more than the time for one, which is what
+``I/O-bound'' means: the process was not working, it was waiting, and waits
+overlap for free. That is a \textbf{16$\times$ improvement} from a one-line
+change.
+
+\textbf{\code{TaskGroup} and \code{gather} are indistinguishable on speed} ---
+0.125 against 0.126\,s. The choice between them is a failure-semantics decision
+(\S\ref{sec:gather-vs-taskgroup}) and never a performance one. Anyone choosing
+\code{gather} for speed is choosing on a difference that does not exist.
+
+\textbf{The cap sets the ceiling, exactly.} Capped at five, twenty requests took
+4.2 round trips against a theoretical floor of four. The concurrency limit does
+precisely what it says, and its cost is arithmetic you can predict before you
+deploy. That matters because \S\ref{sec:semaphore} argues you should almost
+always impose one.
+
+\begin{note}
+The spread is tiny --- 0.124 to 0.132\,s across ten trials --- because
+\code{localhost} has no network variance. Against a real provider the spread is
+the interesting part rather than the median, and Chapter~\ref{ch:serving}
+measures under conditions where that is true. Take the ratios from this
+experiment, which are structural, rather than the absolute numbers, which are
+not.
+\end{note}
+
+% ============================================================
+\section{Limiting concurrency}
+\label{sec:semaphore}
+\index{asyncio!Semaphore}
+\index{rate limiting}
+
+\S\ref{sec:measurement} makes unbounded fan-out look free. Against a model
+provider it is not.
+
+Twenty concurrent calls to a provider is twenty concurrent calls against a rate
+limit you do not control. Two thousand is a wave of \code{429}s, a retry storm,
+and --- because each in-flight request holds its request and response in memory
+--- a plausible route to an out-of-memory kill. The primitive is one line:
+
+\begin{python}[caption={Capping concurrency}, label={lst:semaphore}]
+sem = asyncio.Semaphore(5)
+
+
+async def guarded(prompt):
+    async with sem:
+        return await call_model(prompt)
+
+
+async with asyncio.TaskGroup() as tg:
+    for p in prompts:
+        tg.create_task(guarded(p))
+\end{python}
+
+\begin{dotnetbox}
+\code{asyncio.Semaphore} is \code{SemaphoreSlim}, with the same role and
+essentially the same shape --- \code{async with} in place of
+\code{await WaitAsync()} plus a \code{finally} that releases. The context-manager
+form means you cannot forget the release, which is the bug this construct
+attracts in both languages.
+\end{dotnetbox}
+
+\begin{warning}
+A semaphore is per-process. The moment you run more than one worker --- and
+Chapter~\ref{ch:serving} runs several --- your effective concurrency is the
+limit multiplied by the number of workers, which is neither the number you
+configured nor the number the provider's rate limit is expressed in.
+Chapter~\ref{ch:serving} is where that gets resolved. For now: know the number is
+per-process, and size it accordingly.
+\end{warning}
+
+% ============================================================
+\section{Queues and backpressure}
+\label{sec:queues}
+\index{asyncio!Queue}
+\index{backpressure}
+
+\code{asyncio.Queue} is the producer/consumer primitive, and its most important
+argument is the one people leave off.
+
+\begin{python}[caption={A bounded queue is backpressure}, label={lst:queue}]
+q = asyncio.Queue(maxsize=2)
+await q.put(1)
+await q.put(2)
+await q.put(3)     # blocks here until a consumer takes something
+\end{python}
+
+With \code{maxsize} set, \code{put} blocks when the queue is full. That is not an
+inconvenience --- it is the mechanism by which a slow consumer slows its producer
+down, which is the only thing standing between you and unbounded memory growth.
+
+Leave \code{maxsize} off and the queue is unbounded. A producer faster than its
+consumer then converts a throughput mismatch into a memory leak with a delay
+fuse. Chapter~\ref{ch:serving} meets the production instance: a browser on hotel
+wifi consuming a token stream more slowly than the model produces it.
+
+\begin{dotnetbox}
+\code{asyncio.Queue(maxsize=n)} is \code{Channel.CreateBounded<T>(n)}, and
+leaving it off is \code{Channel.CreateUnbounded<T>()}. Same trade, same reasons,
+same rule: bounded unless you can prove the producer cannot outrun the consumer.
+\end{dotnetbox}
+
+The other synchronisation primitives --- \code{Lock}, \code{Event},
+\code{Condition}, \code{Barrier} --- exist and mirror their threading
+counterparts. \code{Lock} is needed far less often than instinct suggests,
+because of \S\ref{sec:event-loop}: code between awaits is already atomic. Reach
+for it when a critical section \emph{does} contain an await, which is the only
+case where another coroutine can interleave.
+
+% ============================================================
+\section{Async generators and context managers}
+\label{sec:async-generators}
+\index{asyncio!async generator}
+\index{asyncio!aclosing}
+
+Streaming is an async generator, and every streaming interface in this book is
+one:
+
+\begin{python}[caption={The shape of every streaming API here}, label={lst:agen}]
+async def stream_tokens(prompt):
+    async for chunk in model.astream(prompt):
+        yield chunk.text
+\end{python}
+
+\begin{dotnetbox}
+\code{async def ... yield} is \code{IAsyncEnumerable<T>} with
+\code{yield return}; \code{async for} is \code{await foreach}. \code{async with}
+is \code{await using}, and the protocol is a pair of dunder methods rather than
+\code{IAsyncDisposable}.
+\end{dotnetbox}
+
+The trap is abandonment. Break out of an \code{async for} early and the generator
+is left suspended at its \code{yield}, holding whatever it had open --- an HTTP
+response, a cursor, a connection --- until the garbage collector reaches it,
+which is not a schedule you control:
+
+\begin{python}[caption={Closing a generator you abandon}, label={lst:aclosing}]
+from contextlib import aclosing
+
+async with aclosing(stream_tokens(prompt)) as stream:
+    async for token in stream:
+        if user_disconnected():
+            break          # aclosing runs the generator's cleanup on exit
+\end{python}
+
+This is not hypothetical for a streaming service: a client disconnecting
+mid-response is the normal case rather than the exceptional one, and
+Chapter~\ref{ch:cancellation} takes it further.
+
+% ============================================================
+\section{Blocking code}
+\label{sec:blocking}
+\index{asyncio!to\_thread}
+\index{blocking call}
+
+The failure mode this chapter has been building towards, measured.
+
+Ten healthy coroutines each await 50\,ms of I/O. Then one more coroutine is
+added, which calls a blocking library function taking 500\,ms. The question is
+what happens to the other ten.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrX@{}}
+\toprule
+\textbf{Scenario} & \textbf{Worst healthy request} & \\
+\midrule
+No offender & 50.3\,ms & the baseline \\
+Blocking offender & 500.4\,ms & \textbf{10$\times$ worse} \\
+Offender wrapped in \code{to\_thread} & 50.9\,ms & back to baseline \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent
+One coroutine, one blocking call, and every unrelated request in the process got
+ten times slower. Nothing errored. Nothing logged. The requests were not
+competing for a resource --- they were simply unable to run, because the loop was
+inside \code{time.sleep} and there is no pre-emption.
+
+\mermaidfig{async-blocking-call}{%
+  The blocking call, with the measured numbers on it. Note what the diagram does
+  not contain: an error, a warning, or any signal at all.}{%
+  How one blocking call degrades every unrelated request.}
+
+\begin{warning}
+This is the most damaging single defect in async Python and the hardest to find
+after the fact, because the symptom appears on requests that have nothing to do
+with the cause. Latency rises across the board, traces show slow spans
+everywhere, and nothing points at the offending line.
+
+Chapter~\ref{ch:cancellation} covers finding one in a running process. Avoiding
+it is cheaper. The usual offenders: \code{requests}, \code{time.sleep},
+\code{psycopg2}, any synchronous database driver, file I/O on a large file, and
+JSON parsing of a very large payload.
+\end{warning}
+
+\subsection{The two escape hatches}
+\label{sec:to-thread}
+
+\begin{python}[caption={Getting blocking work off the loop}, label={lst:to-thread}]
+# Blocking I/O in a library with no async version: a thread.
+text = await asyncio.to_thread(pdf_extract_text, path)
+
+# CPU-bound work: a process. A thread would not help -- see the GIL table.
+loop = asyncio.get_running_loop()
+with ProcessPoolExecutor() as pool:
+    vectors = await loop.run_in_executor(pool, embed_locally, chunks)
+\end{python}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Use} & \textbf{For} \\
+\midrule
+A native async library & Always, when one exists. \code{httpx} over
+\code{requests}; \code{psycopg} 3 or \code{asyncpg} over \code{psycopg2}. \\[4pt]
+\code{asyncio.to\_thread} & Blocking \emph{I/O} with no async alternative. The
+call releases the GIL while it waits. \\[4pt]
+\code{ProcessPoolExecutor} & CPU-bound work. Threads are measurably useless here
+(\S\ref{sec:gil}). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\code{to\_thread} is not free and the pool is not infinite. It runs on the
+default executor, whose worker count is bounded; saturate it and calls queue,
+which reproduces the original problem one level down and with a less obvious
+symptom. It is a patch for a library you cannot replace, not an architecture.
+\end{warning}
+
+% ============================================================
+\section{Why this chapter is in a book about agents}
+\label{sec:why-async-agents}
+
+Because an agent is the purest I/O-bound workload most engineers will ever
+deploy.
+
+A single turn is: send a prompt, wait one to thirty seconds, receive tool calls,
+wait on an API or a database, send the results back, wait again. Better than
+ninety per cent of wall-clock time is spent waiting on somebody else's network.
+There is almost no computation in an agent --- the computation happens on the
+provider's hardware, and you are billed for it separately.
+
+\S\ref{sec:measurement} put a number on what that means: a 16$\times$ difference
+between the obvious implementation and the correct one, on a workload whose shape
+is exactly an agent's. Without \code{asyncio}:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item one user occupies one worker for the whole of a twenty-second turn;
+\item five tools that could be called at once are called one after another;
+\item token streaming is not really available;
+\item infrastructure cost rises linearly with concurrent users, for a process
+      that is idle almost all the time.
+\end{itemize}
+
+\begin{note}
+Worth having ready as a sentence: \emph{an agent workload is dominated by
+provider latency, so one process can hold hundreds of concurrent conversations
+while spending almost all of its time idle --- and the single thing that destroys
+that property is one blocking call, which costs an order of magnitude and
+produces no error.} Both halves of that are measured in this chapter rather than
+assumed.
+\end{note}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch3-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item A coroutine is cold. It runs when awaited, not when created.
+      \code{create\_task} schedules it; the body still waits for the next yield.
+\item \code{await} inside a loop over independent work is a queue. Measured:
+      20.4 round trips against 1.3.
+\item \code{gather} leaves siblings running after an exception has been handled.
+      \code{TaskGroup} cancels them and waits. They are identical on speed, so
+      the choice is always about failure semantics.
+\item Structured concurrency: a task may not outlive the block that created it.
+\item Cap fan-out with a \code{Semaphore}. The cap sets the ceiling exactly ---
+      measured at 4.2 round trips for a cap of five over twenty requests.
+\item Bound your queues. An unbounded queue with a slow consumer is a memory leak
+      with a delay fuse.
+\item Close async generators you abandon, with \code{aclosing}.
+\item One blocking call degrades every unrelated request by 10$\times$ and emits
+      no signal. Native async library first, \code{to\_thread} for blocking I/O,
+      a process for CPU work.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Run \code{code/ch03/bench\_concurrency.py}. Then set the server delay
+to 1\,ms and run it again. The ratios collapse --- work out why before reading
+on, because the answer is the definition of ``I/O-bound''.
+
+\textbf{2.} Reproduce the orphaned task. Use \code{gather} with one failing and
+one slow coroutine, catch the exception, and print from the slow one when it
+finally finishes. Then convert it to a \code{TaskGroup} and watch the print
+disappear.
+
+\textbf{3.} Take the blocking-call measurement in \S\ref{sec:blocking} and add a
+second, third and fourth blocking coroutine. Latency for the healthy requests
+should rise in steps you can predict exactly. Predict them first.
+
+\textbf{4.} Write a producer/consumer with \code{Queue(maxsize=1)} where the
+producer is ten times faster than the consumer. Log queue depth every 100\,ms.
+Then remove \code{maxsize} and watch the depth --- and the process's memory ---
+instead.
+
+\textbf{5.} Find a blocking call in code you already own. Every non-trivial
+Python service has one. \code{requests}, \code{time.sleep} and a synchronous
+database driver are where to look first.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 01 --- the concurrency playground.} No agent yet: the primitives
+every later stage depends on, written once, where they can be understood.
+
+A capped fan-out under \code{TaskGroup}; a bounded producer/consumer queue; and
+the benchmark from \S\ref{sec:measurement} as a reproducible script.
+Chapter~\ref{ch:cancellation} completes the stage with graceful shutdown.
+
+The test contract is in \code{stages/01-async/README.md}. Its most important
+entry: concurrency must never exceed the cap, asserted on \emph{observed peak}
+rather than on wall-clock time. A timing-based assertion for this passes on a
+fast machine and fails in CI, which teaches the reader the wrong lesson about
+their own code.
+\end{projectbox}

@@ -11,23 +11,23 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1** | 2–17, stubbed |
+| Chapters | **1, 3** | 2, 4–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **87 pages**, **zero
-unresolved references**, **3 overfull hboxes (9.9 / 9.1 / 0.3 pt)**, **zero
-overfull vboxes**. Chapter 1 is 17 of those pages; the rest is scaffolding.
+Build is clean: `latexmk -pdf main.tex` returns 0, **101 pages**, **zero
+unresolved references**, **5 overfull hboxes (9.9 / 9.1 / 8.2 / 7.0 / 0.3 pt)**,
+**zero overfull vboxes**. Chapters 1 and 3 are 31 of those pages; the rest is
+scaffolding.
 
 **Debt ledgers, reported by CI on every build:**
-- 22 chapters and appendices not yet written (`make stubs`)
+- 21 chapters and appendices not yet written (`make stubs`)
 - 0 screenshots requested so far
-- **0 `verifybox` blocks.** Every listing in Chapter 1 was executed against the
-  pinned versions, so none needed one. Keep it that way.
-- 4 Mermaid sources; all render
+- **0 `verifybox` blocks.** Every listing in Chapters 1 and 3 was executed
+  against the pinned versions, so none needed one. Keep it that way.
+- 7 Mermaid sources; all render
 
-**Five experiments are specified across the chapters and none has been run.**
-See *Measurement debt* below. Appendix B's results tables stay empty until they
-have been.
+**One of the five experiments has been run** (experiment 1, Chapter 3). The other
+four have not. See *Measurement debt* below.
 
 ---
 
@@ -183,25 +183,59 @@ drift.
 
 ## Measurement debt
 
-Five experiments are specified in the chapters and **none has been run.** Each
-one is the original data that distinguishes this book from the documentation.
-Until an experiment runs, every claim it would support stays explicitly labelled
-as judgement, and Appendix B's tables stay empty.
+Five experiments are specified in the chapters. **One has been run.** Each is
+the original data that distinguishes this book from the documentation. Until an
+experiment runs, every claim it would support stays explicitly labelled as
+judgement, and Appendix B's tables stay empty.
 
 **Do not fill them with plausible numbers.**
 
-| # | Chapter | Experiment | Cost |
-|---|---|---|---|
-| 1 | 3 §3.x | Sequential vs `gather` vs `TaskGroup` over 20 calls with fixed latency; median of 10 | Free — no provider needed |
-| 2 | 13 | Concurrent conversations per process against p50/p95, with and without one blocking call | Free — mocked provider |
-| 3 | 12 | Cost per conversation across four context strategies, plus cache hit rate; 10 conversations × 10 turns | Cheap |
-| 4 | 6 | Tool-selection accuracy: 5 vs 20 tools × terse vs descriptive docstrings, 30 queries × 20 runs | Moderate |
-| 5 | 11 | **The headline.** Single agent vs five topologies on one fixed task; turn count, token cost, latency, success rate; ≥20 runs each | Highest |
+| # | Chapter | Experiment | Cost | State |
+|---|---|---|---|---|
+| 1 | 3 §3.5 | Sequential vs `gather` vs `TaskGroup` vs capped, 20 calls over real sockets; median of 10 | Free | **DONE** |
+| 2 | 13 | Concurrent conversations per process against p50/p95, with and without one blocking call | Free — mocked provider | not run |
+| 3 | 12 | Cost per conversation across four context strategies, plus cache hit rate; 10 conversations × 10 turns | Cheap | not run |
+| 4 | 6 | Tool-selection accuracy: 5 vs 20 tools × terse vs descriptive docstrings, 30 queries × 20 runs | Moderate | not run |
+| 5 | 11 | **The headline.** Single agent vs five topologies on one fixed task; turn count, token cost, latency, success rate; ≥20 runs each | Highest | not run |
 
-Do them in that order — 1 and 2 are free and 2 produces the most persuasive
-graph in the book. For 4 and 5, **keep the raw event streams, not just the
-summary rows**: Chapter 14 re-scores the same runs under an evaluation harness,
-and re-running to recover traces is expensive.
+Do the rest in that order — 2 is free and produces the most persuasive graph in
+the book. For 4 and 5, **keep the raw event streams, not just the summary
+rows**: Chapter 14 re-scores the same runs under an evaluation harness, and
+re-running to recover traces is expensive.
+
+### Experiment 1 — run, August 2026
+
+Script: `code/ch03/bench_concurrency.py`. Reproducible in about thirty seconds
+on any machine, no provider needed. Twenty requests against a hand-rolled
+localhost HTTP server with a fixed 100 ms delay, one warm-up trial discarded,
+median of ten timed trials.
+
+| Strategy | Median | Min | Max | Round trips |
+|---|---|---|---|---|
+| Sequential | 2.039 s | 2.037 | 2.041 | 20.4× |
+| `gather` | 0.126 s | 0.124 | 0.132 | 1.3× |
+| `TaskGroup` | 0.125 s | 0.124 | 0.128 | 1.2× |
+| Capped at 5 | 0.421 s | 0.420 | 0.424 | 4.2× |
+
+**16× from sequential to concurrent.** `gather` and `TaskGroup` are
+indistinguishable on speed (0.126 vs 0.125 s), so that choice is always about
+failure semantics and never about performance — worth repeating wherever it
+comes up. The capped run landed at 4.2 round trips against a theoretical floor
+of 4, i.e. the cap sets the ceiling almost exactly.
+
+Two supporting measurements were taken in the same pass and are also in
+Chapter 3:
+
+- **GIL.** Four CPU-bound units, one unit alone = 0.29 s. Four threads: 1.09 s
+  (3.7×, essentially serialised). Four processes: 0.29 s (1.0×, parallel) on
+  four cores.
+- **One blocking call.** Ten healthy coroutines awaiting 50 ms each. Worst
+  healthy request: 50.3 ms clean, **500.4 ms** with one blocking offender,
+  50.9 ms with the offender wrapped in `to_thread`. A 10× degradation with no
+  error and no log line.
+
+Note the measurement is on `localhost`, so the spread is unrealistically tight.
+The ratios are structural and transferable; the absolute numbers are not.
 
 ---
 
@@ -226,8 +260,9 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Four diagrams exist: `lc-lg-layering`, `lc-timeline`, `lc-package-map`,
-`async-event-loop`. Chapter 1 references the first three.
+Seven diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline` and
+`lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
+`async-gather-vs-taskgroup` and `async-blocking-call`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -328,6 +363,43 @@ documentation.
 `uv venv scratch && VIRTUAL_ENV=scratch uv pip install <pkg>==<pin>`, then read
 or introspect. That is how `langchain-classic` was checked without adding it to
 the mini-project's dependencies.
+
+### Chapter 3 pass, August 2026
+
+Everything in the chapter was measured or executed rather than asserted. **The
+brief was wrong about one thing and imprecise about another.**
+
+**1. `create_task` does not start the coroutine.** The brief, following the
+source document, described it as "start immediately, in the background". It
+schedules. The body does not execute until the current coroutine yields, which
+is observable: after `create_task` and before any `await`, a side effect on the
+first line of the body has not happened. §3.3.1 measures it and states the
+distinction, because it changes how you reason about ordering.
+
+**2. `TaskGroup` and `gather` are identical on speed.** The brief implied
+`TaskGroup` was the modern-and-therefore-better option. Measured at 0.125 vs
+0.126 s over twenty requests, the difference does not exist. The case for
+`TaskGroup` is entirely about failure semantics, and the chapter was rewritten
+to make that the *only* argument. Anyone recommending it for performance is
+recommending it on a difference that is not there.
+
+**Confirmed by execution, reusable later:**
+
+- `gather` genuinely orphans siblings — the slow sibling logs `finished` *after*
+  the caller's `except` block has run. `TaskGroup` cancels it. Demonstrated with
+  a log-ordering test, which is the clearest way to show it.
+- `as_completed` yields in completion order (`fast`, `mid`, `slow` for
+  0.05/0.15/0.3 s).
+- `Queue(maxsize=n)` blocks the producer when full — verified with
+  `wait_for(q.put(...), timeout=...)` raising `TimeoutError`.
+- The blocking-call demonstration is cheap and extremely persuasive; a version
+  of it belongs in Chapter 13's service-level experiment too, at which point the
+  two should cross-reference rather than duplicate.
+
+**Method note.** The benchmark uses a real localhost HTTP server rather than
+`asyncio.sleep` on the client side. That was a deliberate choice and it is worth
+keeping: sleeping demonstrates the scheduler can schedule and says nothing about
+sockets, and a reviewer will notice.
 
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during

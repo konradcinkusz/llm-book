@@ -1,0 +1,23 @@
+graph TD
+  subgraph g["asyncio.gather — one raises"]
+    G0["gather(boom, sibling)"] --> G1["boom raises ValueError"]
+    G1 --> G2["gather propagates it<br/>to the caller"]
+    G2 --> G3["caller handles it<br/>and moves on"]
+    G1 -.->|"meanwhile"| G4["sibling keeps running<br/>and completes later"]
+    G4 --> G5["ORPHANED:<br/>outlives the call that<br/>started it"]
+  end
+
+  subgraph t["asyncio.TaskGroup — one raises"]
+    T0["async with TaskGroup()"] --> T1["boom raises ValueError"]
+    T1 --> T2["sibling is CANCELLED"]
+    T2 --> T3["block does not exit until<br/>every task has finished"]
+    T3 --> T4["raises ExceptionGroup;<br/>handle with except*"]
+  end
+
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C
+  classDef good fill:#E8F4F0,stroke:#0E7C7B
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  class G0,G1,G2,G3,G4 n
+  class G5 bad
+  class T0,T1,T2,T3 n
+  class T4 good
