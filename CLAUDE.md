@@ -11,20 +11,20 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3** | 2, 4–17, stubbed |
+| Chapters | **1, 3, 8** | 2, 4–7, 9–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **101 pages**, **zero
-unresolved references**, **5 overfull hboxes (9.9 / 9.1 / 8.2 / 7.0 / 0.3 pt)**,
-**zero overfull vboxes**. Chapters 1 and 3 are 31 of those pages; the rest is
+Build is clean: `latexmk -pdf main.tex` returns 0, **116 pages**, **zero
+unresolved references**, **7 overfull hboxes, none above 10 pt**, **zero
+overfull vboxes**. Chapters 1, 3 and 8 are 46 of those pages; the rest is
 scaffolding.
 
 **Debt ledgers, reported by CI on every build:**
-- 21 chapters and appendices not yet written (`make stubs`)
+- 20 chapters and appendices not yet written (`make stubs`)
 - 0 screenshots requested so far
-- **0 `verifybox` blocks.** Every listing in Chapters 1 and 3 was executed
+- **0 `verifybox` blocks.** Every listing in Chapters 1, 3 and 8 was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 7 Mermaid sources; all render
+- 11 Mermaid sources; all render
 
 **One of the five experiments has been run** (experiment 1, Chapter 3). The other
 four have not. See *Measurement debt* below.
@@ -260,9 +260,10 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Seven diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline` and
+Eleven diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
 `lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
-`async-gather-vs-taskgroup` and `async-blocking-call`.
+`async-gather-vs-taskgroup`, `async-blocking-call`; Chapter 8 uses
+`lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -400,6 +401,50 @@ recommending it on a difference that is not there.
 `asyncio.sleep` on the client side. That was a deliberate choice and it is worth
 keeping: sleeping demonstrates the scheduler can schedule and says nothing about
 sockets, and a reviewer will notice.
+
+### Chapter 8 pass, August 2026
+
+Verified by running every listing against `langgraph` 1.2.10. **Two findings that
+were not in the brief, and both are chapter-grade material.**
+
+**1. A `Command`-returning node without a return annotation draws the wrong
+graph.** `def router(s) -> Command:` yields edges `(__start__, router)`,
+`(router, __end__)` — the edge to the actual destination is **missing**.
+`def router(s) -> Command[Literal["billing"]]:` yields the correct three edges.
+Both execute identically; only the visualisation differs. §8.6.1 has this as a
+warning. Rule: always annotate the return type of a node returning a `Command`.
+
+**2. An append-only reducer shared across a subgraph boundary duplicates the
+parent's content.** Parent writes `['parent']`, child appends `['sub']`, result
+is `['parent', 'parent', 'sub']`. Mechanism: the subgraph is invoked with the
+parent's state, so its accumulator already contains the parent's entries; its
+*final* value is then merged back through `operator.add`, which appends the lot.
+`add_messages` is immune because it merges by id. §8.8.1 has this, and it
+retroactively explains why `add_messages` is id-keyed rather than a plain append
+— worth reusing in Chapter 9 when replay comes up.
+
+**Confirmed, and reusable:**
+
+- **Supersteps, demonstrated.** Two nodes from `START` both read `counter=0`; a
+  third node one step later reads `2`. `stream_mode="updates"` emits one dict per
+  node with clear step grouping. This is the clearest superstep demo available
+  and costs nothing to run.
+- **The exact error text:** `InvalidUpdateError: At key 'value': Can receive only
+  one value per step. Use an Annotated key to handle multiple values.` A reduced
+  key in the same graph merges fine — the error names the offending key.
+- **`add_messages` does three things:** appends; **replaces** when the id matches;
+  deletes on `RemoveMessage`. Messages without an id get one assigned.
+- **`StateGraph.__init__` is `(state_schema, context_schema, input_schema,
+  output_schema)`.** Note `input_schema`/`output_schema`, not the older
+  `input=`/`output=`. `compile()` takes `checkpointer, cache, store,
+  interrupt_before, interrupt_after, debug, name, transformers`.
+- **Output schema filters the returned dict; input schema does not validate.**
+  Passing an unknown input key is accepted without error.
+- **`Runtime[Ctx]` as a second node parameter**, with `context=` on invoke.
+  `Runtime` also carries `store`, `stream_writer`, `previous`, `control`.
+  This supersedes the source document's config-based context entirely.
+- **`stream(..., subgraphs=True)`** yields `(namespace_tuple, update)` and is the
+  first tool to reach for when a composed graph misbehaves.
 
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during

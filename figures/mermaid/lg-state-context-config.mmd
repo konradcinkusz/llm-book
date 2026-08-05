@@ -1,0 +1,30 @@
+graph TB
+  subgraph state["STATE — the graph's working memory"]
+    S1["Declared in the state schema"]
+    S2["Nodes read it and return partial updates"]
+    S3["Merged by reducers at each boundary"]
+    S4["Checkpointed. Survives a restart."]
+    S5["e.g. messages, retrieved docs, attempt count"]
+  end
+
+  subgraph ctx["CONTEXT — runtime facts, per invocation"]
+    C1["Declared in context_schema"]
+    C2["Read via runtime.context"]
+    C3["Passed as context= on invoke"]
+    C4["IMMUTABLE for the run. Nodes cannot write it."]
+    C5["e.g. user_id, tenant, permissions"]
+  end
+
+  subgraph cfg["CONFIG — how the run is executed"]
+    F1["config={'configurable': {...}}"]
+    F2["thread_id lives here — the checkpoint key"]
+    F3["recursion_limit, callbacks, tags"]
+    F4["Plumbing, not domain data"]
+  end
+
+  classDef s fill:#E8F0F5,stroke:#1F4E79
+  classDef c fill:#E8F4F0,stroke:#0E7C7B
+  classDef f fill:#FDF3E0,stroke:#B26A00
+  class S1,S2,S3,S4,S5 s
+  class C1,C2,C3,C4,C5 c
+  class F1,F2,F3,F4 f

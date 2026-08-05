@@ -1,0 +1,17 @@
+graph LR
+  S["__start__"] --> P["plan"]
+  P -->|"Send('analyse', {doc: 'a'})"| A1["analyse<br/>doc = a"]
+  P -->|"Send('analyse', {doc: 'b'})"| A2["analyse<br/>doc = b"]
+  P -->|"Send('analyse', {doc: 'c'})"| A3["analyse<br/>doc = c"]
+  A1 --> R["results merged by<br/>Annotated[list, operator.add]"]
+  A2 --> R
+  A3 --> R
+  R --> E["__end__"]
+
+  N["One node declaration.<br/>N instances at run time,<br/>each with its OWN input —<br/>not the shared state."]:::note
+
+  P -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class S,P,A1,A2,A3,R,E n
