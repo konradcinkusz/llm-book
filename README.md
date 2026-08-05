@@ -12,15 +12,16 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **Chapters 1, 3, 7 and 8–13 are written. The rest are not.** Part III is
-> complete. The structure, build and diagram pipeline are in place and the book
-> compiles clean at 180 pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
-> its own brief, and CI reports the count on every build, so the page count never
-> flatters the state of the work.
+> **A complete draft.** All seventeen chapters and six appendices are written —
+> 241 pages, building clean with no unresolved references.
 >
-> Every listing in every written chapter was executed against the pinned
-> versions, so none carries a *run this before you trust it* marker. That is the
-> standard the rest of the book is held to.
+> **Every listing was executed against the pinned versions**, so nothing carries
+> a *run this before you trust it* marker. Where something could not be verified,
+> the text says so rather than rounding up.
+>
+> What remains is finishing rather than drafting: three measurements that need a
+> provider budget, the mini-project's stages, and one screenshot. Each is counted
+> on every CI build so the debt is visible rather than quietly carried.
 
 ---
 
@@ -58,7 +59,7 @@ which over ninety per cent of wall-clock time is spent waiting on a network, and
 the interesting failure modes — a swallowed cancellation, an unbounded queue, a
 blocking call in a coroutine — show up in production rather than in a notebook.
 
-### Five experiments, three and a half run
+### Five experiments, three and a half run — none needing a provider
 
 The book's differentiator is meant to be original measurement rather than
 assertion. Five experiments are fully specified; **three and a half have been

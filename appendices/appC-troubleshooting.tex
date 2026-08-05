@@ -2,27 +2,184 @@
 \label{app:troubleshooting}
 
 \noindent
-Symptom, cause, fix. Organised by what you observe rather than by what is wrong,
-because when you need this page you do not yet know what is wrong.
+Organised by what you observe, because when you need this page you do not yet
+know what is wrong. Where a symptom has several causes they are ordered by how
+often each turns out to be the one.
 
-\chapterstub{
-\textbf{Contents.} Grouped by symptom. (C.1) The service becomes unresponsive
-under load. (C.2) \code{Task exception was never retrieved}, and its silent
-cousin, the garbage-collected task. (C.3) The process will not shut down.
-(C.4) \code{coroutine has no attribute}, and mixing sync and async paths.
-(C.5) \api{InvalidUpdateError} from parallel writes. (C.6) State not persisting
-between turns --- almost always a missing \code{thread\_id}. (C.7) The
-conversation vanished after a restart --- almost always the in-memory saver.
-(C.8) \api{GraphRecursionError} and the agent that will not stop. (C.9) The same
-side effect happened twice. (C.10) The model calls the wrong tool. (C.11) The
-model stopped calling tools at all as the tool count grew. (C.12) Context
-overflows, or quality degrades before it overflows. (C.13) Costs rose without a
-traffic change. (C.14) Streaming works locally and buffers in production.
-(C.15) Rate limits and 429s. (C.16) A resumed interrupt re-ran work.
-(C.17) Evaluation scores moved and nothing was deployed.
+% ============================================================
+\section{The service degrades under load}
+\label{sec:tsA}
 
-\textbf{Convention.} Every entry states the observable symptom first, then the
-cause, then the fix, then a cross-reference to the chapter that explains why.
-Where a symptom has several causes, they are ordered by how often each turns out
-to be the one.
-}
+\textbf{Symptom.} Latency rises across all endpoints. No errors. The traces show
+slow spans everywhere and nothing in particular.
+
+\textbf{Cause, almost always.} A blocking call in a coroutine. Measured at
+10$\times$ in-process (Ch.~\ref{ch:asyncio}) and 44\% of service throughput
+(Ch.~\ref{ch:serving}). The defining feature is that the symptom appears on
+requests unrelated to the offender.
+
+\textbf{Find it.} \code{PYTHONASYNCIODEBUG=1}, or the loop-starvation watchdog in
+Chapter~\ref{ch:cancellation}. Usual offenders: \code{requests},
+\code{time.sleep}, \code{psycopg2}, a sync checkpointer in an async graph, a
+large \code{json.loads}.
+
+% ============================================================
+\section{The process will not shut down}
+\label{sec:tsB}
+
+\textbf{Cause.} A swallowed \code{CancelledError} --- often via bare
+\code{except:} rather than a deliberate catch. Chapter~\ref{ch:cancellation}.
+
+\textbf{Fix.} Clean up, then \code{raise}. Note that \code{except Exception} does
+\emph{not} catch it since Python 3.8; bare \code{except} does.
+
+% ============================================================
+\section{A task vanished}
+\label{sec:tsC}
+
+\textbf{Symptom.} Background work sometimes does not happen. No error.
+
+\textbf{Cause.} \code{create\_task} without keeping the reference; the task was
+garbage-collected mid-flight.
+
+\textbf{Fix.} Hold the reference, or use \code{TaskGroup}.
+
+% ============================================================
+\section{\texorpdfstring{\api{InvalidUpdateError}}{InvalidUpdateError} at a key}
+\label{sec:tsD}
+
+\begin{console}
+InvalidUpdateError: At key 'value': Can receive only one value per step.
+Use an Annotated key to handle multiple values.
+\end{console}
+
+\textbf{Cause.} Two nodes in one superstep wrote a key with no reducer. The error
+names the key.
+
+\textbf{Fix.} \code{Annotated[T, reducer]}. Decide what merging means for that
+field --- which is a real design question. Chapter~\ref{ch:stategraph}.
+
+% ============================================================
+\section{State does not persist between turns}
+\label{sec:tsE}
+
+\textbf{Cause.} No \code{thread\_id}, or a different one each request. Missing
+entirely raises:
+
+\begin{console}
+ValueError: Checkpointer requires one or more of the following 'configurable'
+keys: thread_id, checkpoint_ns, checkpoint_id
+\end{console}
+
+% ============================================================
+\section{The conversation vanished after a restart}
+\label{sec:tsF}
+
+\textbf{Cause.} \code{InMemorySaver} in production. It does not survive a restart
+and is not shared between pods. A run paused for approval simply ceases to exist.
+Chapter~\ref{ch:persistence}.
+
+% ============================================================
+\section{The same side effect happened twice}
+\label{sec:tsG}
+
+\textbf{Cause.} A node replayed after a failure. The node boundary is the replay
+boundary --- everything after the last checkpoint runs again, including the
+email. Measured in Chapter~\ref{ch:persistence}.
+
+\textbf{Fix.} An idempotency key derived from the intent, checked before the
+effect; the effect isolated in its own node. Note that a \api{RetryPolicy} on an
+unguarded side effect multiplies the defect rather than improving reliability.
+
+% ============================================================
+\section{Work repeated after an approval}
+\label{sec:tsH}
+
+\textbf{Cause.} Code before \api{interrupt} in the same node. Measured at twice
+in Chapter~\ref{ch:interrupts}. A node \emph{before} the gate is safe.
+
+\textbf{Fix.} Prepare, gate and act in three separate nodes.
+
+% ============================================================
+\section{The agent will not stop}
+\label{sec:tsI}
+
+\begin{console}
+GraphRecursionError: Recursion limit of 25 reached without hitting a stop
+condition.
+\end{console}
+
+\textbf{Cause.} The loop exits only when the model stops requesting tools. Usually
+a tool returns an error the model cannot act on, so it retries forever.
+
+\textbf{Fix, in order.} Find the repeating step in a trace. Return an error the
+model can act on rather than a stack trace. Add a call limit
+(Ch.~\ref{ch:agents}). Use \api{RemainingSteps} to exit gracefully. Raising
+\code{recursion\_limit} is not a fix.
+
+% ============================================================
+\section{The model calls the wrong tool, or stops calling tools}
+\label{sec:tsJ}
+
+\textbf{Cause, wrong tool.} The description. The name, docstring and field
+descriptions are the prompt (Ch.~\ref{ch:tools}).
+
+\textbf{Cause, stopped calling.} Too many tools. Degradation sets in around
+fifteen to twenty. Structural fixes only: a selector, subagents, or MCP.
+
+% ============================================================
+\section{Costs rose without a traffic change}
+\label{sec:tsK}
+
+\textbf{Check, in order.} Tool results growing --- Chapter~\ref{ch:context}
+measured this as the dominant consumer at 84\%. Step count per run creeping up. A
+prompt change that broke the cache prefix. A fallback quietly serving a more
+expensive model.
+
+% ============================================================
+\section{Streaming works locally, buffers in production}
+\label{sec:tsL}
+
+\textbf{Cause.} A proxy buffering the response, or a middleware reading the whole
+body. Not your code.
+
+\textbf{Fix.} Disable buffering on the streaming route
+(\code{X-Accel-Buffering: no} for nginx); check for compression middleware.
+
+% ============================================================
+\section{A user's message disappeared}
+\label{sec:tsM}
+
+\textbf{Cause.} Two concurrent runs on one \code{thread\_id}. Both loaded the
+same checkpoint, both ran, last writer won. Measured in
+Chapter~\ref{ch:serving}: the entire first request vanishes, with no error.
+
+\textbf{Fix.} A per-thread lock --- \code{asyncio.Lock} within a process, a
+Postgres advisory lock across pods.
+
+% ============================================================
+\section{Evaluation scores moved and nothing was deployed}
+\label{sec:tsN}
+
+\textbf{Causes.} The judge model was upgraded underneath you --- pin it. Or the
+run count is too low to separate signal from variance; use
+\code{num\_repetitions} and threshold on the median
+(Ch.~\ref{ch:observability}).
+
+% ============================================================
+\section{The test suite is green and tests nothing}
+\label{sec:tsO}
+
+\textbf{Cause.} \code{asyncio\_mode} lost from the pytest configuration. Every
+\code{async def} test is then never awaited and reports \emph{passed}.
+
+\textbf{Fix.} Have a test whose only job is to detect this.
+Chapter~\ref{ch:cancellation}.
+
+% ============================================================
+\section{The drawn graph is missing an edge}
+\label{sec:tsP}
+
+\textbf{Cause.} A node returning \api{Command} without a
+\code{Command[Literal[...]]} return annotation. It executes correctly and draws
+wrongly. Chapter~\ref{ch:stategraph}.

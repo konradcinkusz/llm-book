@@ -11,23 +11,26 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3, 7, 8–13** | 2, 4–6, 14–17, stubbed |
-| Appendices | 0 written | A–F, all stubbed |
+| Chapters | **1–17, all drafted** | — |
+| Appendices | **A–F, all drafted** | — |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **180 pages**, **zero
-unresolved references**, **12 overfull hboxes, none above 15 pt**, **zero
-overfull vboxes**. Nine chapters are written and are 110 of those pages.
-**Part III is complete.**
+Build is clean: `latexmk -pdf main.tex` returns 0, **241 pages**, **zero
+unresolved references**, **21 overfull hboxes, none above 15 pt**, **zero
+overfull vboxes**.
+
+**A full draft exists.** Every chapter and appendix is written. What remains is
+finishing, not drafting — see *What is left* at the bottom.
 
 **Debt ledgers, reported by CI on every build:**
-- 14 chapters and appendices not yet written (`make stubs`)
+- 0 chapters and appendices outstanding — `make stubs` prints nothing
 - 1 screenshot outstanding: `studio-multi-agent`
 - **0 `verifybox` blocks.** Every listing in the written chapters was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 30 Mermaid sources; all render
+- 45 Mermaid sources; all render
 
-**Measurement: 3½ of 5 experiments run.** Experiments 1 (Ch. 3), 2 (Ch. 13) and
-the token half of 3 (Ch. 12), plus the structural half of 5 (Ch. 11). See
+**Measurement: 3½ of 5 experiments run**, all without a provider. Experiments 1
+(Ch. 3), 2 (Ch. 13) and the token half of 3 (Ch. 12), plus the structural half of
+5 (Ch. 11). The three outstanding pieces all need a provider budget. See
 *Measurement debt* below.
 
 ---
@@ -818,3 +821,34 @@ PY
 **Note on tagging:** `git push --tags` returns HTTP 403 through the sandbox's
 git proxy, so tags created in a Claude Code web session exist locally only and
 are lost when the container is reclaimed. Tag from a local clone instead.
+
+
+---
+
+## What is left
+
+**All seventeen chapters and six appendices are drafted.** There are no stubs.
+The remaining work is finishing, in rough priority order:
+
+1. **The three provider-dependent measurements.** Multi-agent answer quality
+   (Ch. 11), tool-selection accuracy against tool count (Ch. 6), and cache hit
+   rate (Ch. 12). All are specified; all need a budget and a few hours. Until
+   they run, Appendix B's tables for them stay empty and every claim resting on
+   them stays labelled as judgement.
+2. **The mini-project.** Seventeen chapters of contracts and zero implemented
+   stages. Stage 00's tests pass; everything else is a README stating what must
+   be built. This is now the largest single body of outstanding work.
+3. **One screenshot**: `studio-multi-agent`.
+4. **An index pass.** The book has `\index{}` entries throughout but no
+   dedicated pass; maf-book's experience was that this roughly quintuples the
+   entry count and is worth a session of its own. Note its two hard limits:
+   verbatim entries must stay under about 29 characters or they overflow the
+   two-column index, and package names never fit.
+5. **A consistency pass.** Written chapter-by-chapter over several sessions, so
+   the appendices were drafted last and may disagree with chapters in places.
+   maf-book found two outright errors this way.
+6. Optional: a further-reading section; a glossary of the English terms alone,
+   for readers who do not need the Polish column.
+
+**Do not fill Appendix B's empty tables with plausible numbers.** They are empty
+on purpose and the emptiness is load-bearing.

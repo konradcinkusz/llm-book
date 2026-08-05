@@ -1,22 +1,108 @@
 \chapter{Glossary and Sources}
 \label{app:glossary}
 
-\noindent
-A bilingual glossary, and an account of where the material in this book came
-from and how to check whether it still holds.
+% ============================================================
+\section{Glossary}
+\label{sec:appE-glossary}
 
-\chapterstub{
-\textbf{Contents.} (E.1) Glossary, English to Polish --- checkpointer, durable
-execution, human-in-the-loop, interrupt, resume, reducer, fan-out, fan-in, tool
-calling, guardrails, grounding, trajectory, handoff, backpressure, superstep,
-structured concurrency, context engineering, prompt caching. Included because the
-documentation is in English and a large number of the conversations about it are
-not. (E.2) Primary sources, with what each is good for and what it is stale
-about. (E.3) Repositories worth reading rather than searching. (E.4) How to date
-a piece of LangChain material in ten seconds: if it contains
+English to Polish, because the documentation is in English and a good many of the
+conversations about it are not.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{English} & \textbf{Polish} & \textbf{Means} \\
+\midrule
+checkpointer & mechanizm punktów kontrolnych & Per-thread state snapshots \\
+store & pamięć długoterminowa & Cross-thread documents \\
+durable execution & trwałe wykonanie & Survives a restart \\
+replay boundary & granica powtórzenia & The node; it re-runs whole \\
+idempotency & idempotencja & Safe to run twice \\
+human-in-the-loop & bramka akceptacji & A person approves mid-run \\
+interrupt / resume & wstrzymanie / wznowienie & Pause as a row; continue later \\
+reducer & funkcja scalająca & Merges state updates \\
+superstep & superkrok & The execution and checkpoint unit \\
+fan-out / fan-in & rozgałęzienie / scalenie & Split work; merge results \\
+handoff & przekazanie sterowania & Agent to agent \\
+tool calling & wywoływanie narzędzi & The model requests a function \\
+trajectory & trajektoria & The path of steps taken \\
+guardrails & zabezpieczenia & Controls outside the model \\
+grounding & ugruntowanie & Answer supported by sources \\
+backpressure & przeciwciśnienie & A slow consumer slows its producer \\
+structured concurrency & współbieżność strukturalna & A task cannot outlive its
+  block \\
+context engineering & zarządzanie kontekstem & Treating the window as a budget \\
+prompt caching & buforowanie promptu & Charged less for a repeated prefix \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================
+\section{Sources, and what each is good for}
+\label{sec:appE-sources}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Source} & \textbf{Good for} & \textbf{Stale about} \\
+\midrule
+\textbf{The installed package} & Everything. The only source that cannot be
+  stale. & Nothing --- it is the truth \\[3pt]
+Upstream repository & Examples and tests, which beat the prose docs & Match the
+  tag to your pin \\[3pt]
+\code{docs.langchain.com} & Current, well organised & The happy path; lags the
+  package \\[3pt]
+\code{reference.langchain.com} & Generated API reference & Rarely; it is
+  generated \\[3pt]
+\code{blog.langchain.com} & Rationale and announcements & Dated by definition \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\textbf{Date every piece of material you find.} If it contains
 \api{AgentExecutor}, \api{initialize\_agent}, \api{LLMChain} or
-\code{langgraph.prebuilt.create\_react\_agent}, it predates October 2025 and
-describes an architecture that no longer exists. (E.5) How this book was verified,
-and where it was not --- listed explicitly, so a reader knows which parts to
-distrust first.
-}
+\code{langchain.chains}, it predates October~2025 and describes an architecture
+that no longer exists. Apply this to model output as well as to search results:
+an assistant asked for LangChain code will confidently produce the retired API.
+\end{warning}
+
+% ============================================================
+\section{How this book was verified, and where it was not}
+\label{sec:appE-verification}
+
+Every listing was executed against the pinned versions. No chapter carries a
+\emph{run this before you trust it} marker, which is the standard rather than an
+achievement --- the marker exists precisely so that unverified material can ship
+visibly rather than silently.
+
+\textbf{Where the package contradicted the documentation}, and the package won:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \api{create\_react\_agent} is deprecated, not removed.
+\item The 1.0 release date is 17 October 2025 --- the PyPI upload --- not the
+      22nd, which is the announcement.
+\item The call-limit middleware has no \code{limit=} parameter.
+\item The summarisation middleware has no \code{max\_tokens\_before\_summary}.
+\item Node timeouts work only on async nodes, and say so.
+\item No in-box fake chat model implements \code{bind\_tools}.
+\end{itemize}
+
+\textbf{What is measured, and what is not.} Four experiments produced numbers,
+all reproducible without a provider: concurrency (Ch.~\ref{ch:asyncio}), service
+throughput (Ch.~\ref{ch:serving}), context strategies (Ch.~\ref{ch:context}) and
+topology overhead (Ch.~\ref{ch:multi-agent}).
+
+Three things are \emph{not} measured, need a provider budget, and are labelled as
+judgement wherever they appear: multi-agent answer quality, tool-selection
+accuracy against tool count, and cache hit rate. The tables for them in
+Appendix~\ref{app:cheatsheet} are deliberately empty.
+
+\begin{note}
+The habit is the transferable part. This book will go stale --- the ecosystem
+ships weekly, and the exact import paths will move. What will not go stale is the
+practice that produced it: read the installed package, run the listing, and when
+you cannot verify something, say so in the text rather than rounding up.
+\end{note}

@@ -8,13 +8,13 @@ sequenceDiagram
   K->>P: SIGTERM
   P->>P: readiness probe starts failing
   P->>L: removed from rotation
-  Note over P: stop ACCEPTING; keep SERVING
+  Note over P: stop ACCEPTING, keep SERVING
   loop in-flight runs
     P->>DB: reach a superstep boundary, checkpoint
   end
   P->>DB: close pools
   P-->>K: exit 0
-  Note over K,P: grace period must exceed the longest run.<br/>If it does not, this whole sequence is decorative.
+  Note over K,P: grace period must exceed the longest run,<br/>or this whole sequence is decorative
 
   rect rgb(251, 233, 233)
     Note over P: ONE swallowed CancelledError anywhere in<br/>the request path turns this into a 30-second<br/>wait followed by SIGKILL, with work lost.
