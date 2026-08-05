@@ -1,0 +1,27 @@
+graph LR
+  subgraph before["BEFORE — every turn re-sent in full"]
+    B1["turn 1 + fat tool result"]
+    B2["turn 2 + fat tool result"]
+    B3["..."]
+    B4["turn 9 + fat tool result"]
+    B5["turn 10 + fat tool result"]
+  end
+
+  subgraph after["AFTER — compacted at the threshold"]
+    A1["SUMMARY of turns 1-6<br/><i>costs a model call</i>"]
+    A2["turn 7"]
+    A3["turn 8"]
+    A4["turn 9"]
+    A5["turn 10"]
+  end
+
+  before -->|"crosses SUMMARISE_AT"| after
+
+  N["What compaction loses is EXACT DETAIL.<br/>If turn 3 established a constraint the<br/>model still needs, the summary must<br/>carry it — and a summariser cannot know<br/>which detail mattered."]:::warn
+  after -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef sum fill:#FDF3E0,stroke:#B26A00
+  classDef warn fill:#FBE9E9,stroke:#9B2C2C,color:#5A5A5A
+  class B1,B2,B3,B4,B5,A2,A3,A4,A5 n
+  class A1 sum

@@ -11,23 +11,23 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3, 7, 8–11, 13** | 2, 4–6, 12, 14–17, stubbed |
+| Chapters | **1, 3, 7, 8–13** | 2, 4–6, 14–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **172 pages**, **zero
-unresolved references**, **11 overfull hboxes, none above 10 pt**, **zero
-overfull vboxes**. Eight chapters are written and are 102 of those pages.
+Build is clean: `latexmk -pdf main.tex` returns 0, **180 pages**, **zero
+unresolved references**, **12 overfull hboxes, none above 15 pt**, **zero
+overfull vboxes**. Nine chapters are written and are 110 of those pages.
 **Part III is complete.**
 
 **Debt ledgers, reported by CI on every build:**
-- 15 chapters and appendices not yet written (`make stubs`)
+- 14 chapters and appendices not yet written (`make stubs`)
 - 1 screenshot outstanding: `studio-multi-agent`
 - **0 `verifybox` blocks.** Every listing in the written chapters was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 27 Mermaid sources; all render
+- 30 Mermaid sources; all render
 
-**Measurement: 2½ of 5 experiments run.** Experiment 1 (Chapter 3), experiment 2
-(Chapter 13) and the structural half of experiment 5 (Chapter 11). See
+**Measurement: 3½ of 5 experiments run.** Experiments 1 (Ch. 3), 2 (Ch. 13) and
+the token half of 3 (Ch. 12), plus the structural half of 5 (Ch. 11). See
 *Measurement debt* below.
 
 ---
@@ -195,7 +195,7 @@ judgement, and Appendix B's tables stay empty.
 |---|---|---|---|---|
 | 1 | 3 §3.5 | Sequential vs `gather` vs `TaskGroup` vs capped, 20 calls over real sockets; median of 10 | Free | **DONE** |
 | 2 | 13 | Concurrent conversations per process against p50/p95, with and without one blocking call | Free — mocked provider | **DONE** |
-| 3 | 12 | Cost per conversation across four context strategies, plus cache hit rate; 10 conversations × 10 turns | Cheap | not run |
+| 3 | 12 | Cost per conversation across four context strategies, plus cache hit rate | Cheap | **token half DONE**; cache hit rate needs a provider |
 | 4 | 6 | Tool-selection accuracy: 5 vs 20 tools × terse vs descriptive docstrings, 30 queries × 20 runs | Moderate | not run |
 | 5 | 11 | **The headline.** Single agent vs five topologies on one fixed task; turn count, token cost, latency, success rate; ≥20 runs each | Highest | **structural half DONE**, quality half not run |
 
@@ -203,6 +203,40 @@ Do the rest in that order — 2 is free and produces the most persuasive graph i
 the book. For 4 and 5, **keep the raw event streams, not just the summary
 rows**: Chapter 14 re-scores the same runs under an evaluation harness, and
 re-running to recover traces is expensive.
+
+### Experiment 3, token half — run, August 2026
+
+Script: `code/ch12/context_cost.py`. Ten turns, one tool call each, a realistic
+~40-field incident payload, tokens counted with `count_tokens_approximately`.
+No provider; under a second.
+
+| Strategy | Billed tokens | vs naive | Final context | Summaries |
+|---|---|---|---|---|
+| naive | 43,510 | 1.00× | 4,350 | 0 |
+| projected | 6,910 | **0.16×** | 690 | 0 |
+| summarised | 28,180 | 0.65× | 1,795 | 1 |
+| both | 6,910 | 0.16× | 690 | 0 |
+
+**Projecting tool results cut the bill 84%; summarising history cut 35%.** The
+technique everyone writes about is worth less than half the one almost nobody
+applies — which is the chapter's whole thesis, and it is now measured rather
+than asserted.
+
+**"Both" is identical to "projected", to the token**, because with projection
+the conversation never reaches the summarisation threshold at all. Fix the
+dominant consumer and the second technique becomes unnecessary.
+
+Two honest caveats, both in the chapter: the ratio depends on the tool returning
+a fat payload (a lean tool has nothing to project), and the summarised rows are
+flattered because the script does not charge for the summarisation call.
+
+**Not measured: cache hit rate.** That needs a real provider's usage reporting.
+The §12.5 material on prefix matching is therefore mechanism and judgement, not
+measurement.
+
+Corroborating detail worth keeping: the in-box context-editing middleware's only
+built-in edit type is `ClearToolUsesEdit` — the library's own default remedy
+targets tool output rather than history.
 
 ### Experiment 2 — run, August 2026
 
@@ -290,7 +324,7 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Twenty-seven diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
+Thirty diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
 `lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
 `async-gather-vs-taskgroup`, `async-blocking-call`; Chapter 8 uses
 `lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`;
@@ -299,7 +333,8 @@ Chapter 9 uses `lg-replay-boundary`, `lg-checkpointer-vs-store`,
 `stream-projections`, `double-texting-policies`; Chapter 7 uses `agent-loop`,
 `middleware-order`, `middleware-aspnet`; Chapter 11 uses `ma-topologies`,
 `ma-supervisor-turns`, `ma-handoff-loop`; Chapter 13 uses `svc-architecture`,
-`svc-thread-lock`, `svc-sse-flow`.
+`svc-thread-lock`, `svc-sse-flow`; Chapter 12 uses `ctx-window-budget`,
+`ctx-compaction`, `ctx-cache-points`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -704,6 +739,25 @@ accurate and more alarming than "interleaved", and §13.5 says it that way.
 **Reusable:** the demonstration is free (`InMemorySaver`, two `ainvoke` calls
 under `gather`) and belongs in the mini-project's CI. It is the test most
 implementations lack.
+
+### Chapter 12 pass, August 2026
+
+The brief was right that this was the source document's largest gap and right
+about the thesis. What it could not supply was the number, and the number turned
+out to be larger than expected: **84% against 35%**. See *Measurement debt*.
+
+**Verified:** `ContextEditingMiddleware(edits=..., token_count_method=...)` with
+`ClearToolUsesEdit(trigger=100000, clear_at_least=0, keep=3,
+clear_tool_inputs=False, exclude_tools=(), placeholder='[cleared]')`.
+`count_tokens_approximately` is in `langchain_core.messages.utils` and takes
+`chars_per_token`, `extra_tokens_per_message` and a `tools=` argument — so tool
+definitions can be priced too, which §12.7 uses.
+
+**§12.6 (degradation over long context) carries no measurement and says so.**
+Measuring positional attention properly needs a provider, a checkable task and
+enough runs to beat variance, and the answer would be specific to one model
+version. The structural advice holds regardless; the numbers commonly quoted for
+this do not.
 
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during

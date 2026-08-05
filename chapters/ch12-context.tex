@@ -7,48 +7,350 @@ it.
 \end{quote}
 
 \noindent
-The source material this book grew from marks this as its largest missing
-chapter, and it is right to. Everything in Parts~II and~III assumes the model can
-see what it needs to see, and in a real agent that assumption fails quietly:
-tool outputs accumulate, history grows, quality degrades before any limit is hit,
-and the bill rises the whole time. Context engineering is the discipline of
-treating the window as the scarce, managed resource it is.
+Everything in Parts~II and~III assumes the model can see what it needs to see. In
+a real agent that assumption fails quietly: tool outputs accumulate, history
+grows, quality degrades before any hard limit is reached, and the bill rises the
+whole time.
 
-\chapterstub{
-\textbf{Argument.} Tool results, not conversation history, are the dominant
-consumer of context in a working agent, and they are the thing nobody trims. A
-single unfiltered SQL result or web page can cost more than the entire preceding
-conversation.
+This chapter makes one claim and then measures it. \textbf{Tool results, not
+conversation history, dominate a working agent's context} --- and almost every
+piece of advice on this subject is about trimming history.
 
-\textbf{Sections.} (12.1) The window as a managed resource: what occupies it, in
-what proportion, measured on a real run rather than assumed. (12.2) Compaction
-and summarisation: the summarisation middleware, what it keeps, and what it
-silently loses. (12.3) Trimming tool results --- the main event: truncation
-strategies, projecting only the fields the model needs, and returning a handle
-rather than a payload. (12.4) Editing context in flight with the context-editing
-middleware. (12.5) Prompt caching: where cache points go, why message ordering
-determines whether they hit, and the economics with real numbers. (12.6) Quality
-degradation over long contexts --- what the evidence actually supports, and the
-practical rule that follows. (12.7) Tool selection under scale, the selector
-middleware, and MCP namespacing. (12.8) Injecting memory and user profile without
-paying for it on every turn.
+% ============================================================
+\section{What you are actually billed for}
+\label{sec:billed-for}
+\index{context window}
+\index{cost!per conversation}
 
-\textbf{Listings.} A context accounting harness that prints the window
-composition per turn; a tool-result projector; summarisation configured and its
-loss demonstrated; a prompt-cache-friendly message layout against a
-cache-hostile one, with the cost difference.
+The first thing to internalise is that a conversation is not incremental. Every
+turn re-sends the whole thing.
 
-\textbf{Diagrams.} \code{ctx-window-budget} --- window composition over ten turns
-as a stacked bar. \code{ctx-compaction} --- before and after summarisation.
-\code{ctx-cache-points} --- why reordering messages destroys a cache hit.
+A ten-turn conversation does not cost ten messages' worth of input tokens. Turn
+one sends one message; turn ten sends nineteen. And in an agent each turn
+involves at least two model calls --- once to decide, once again with the tool
+result --- so the whole accumulated context is billed twice per turn.
 
-\textbf{Measurement.} Cost per conversation across four configurations: naive,
-trimmed tool results, summarised history, and both --- plus cache hit rate.
-Ten conversations of ten turns each. This one is cheap and the numbers are
-striking; it should be run early.
+That quadratic-ish growth is why an agent that feels fine in testing produces a
+surprising invoice in production, and it is why the window is a budget rather
+than a limit.
 
-\textbf{Mini-project.} Stage 09: tool-result projection, summarisation, cache
-points, and a cost report per conversation.
+% ============================================================
+\section{The measurement}
+\label{sec:context-measurement}
+\index{measurement!context strategies}
 
-\textbf{Source topics covered.} Part~V 5.1--5.8, all marked as gaps in the source.
-}
+\textbf{Method.} Ten turns, one tool call each. The tool returns a realistic
+incident-management payload --- about forty fields, of which three answer the
+question. Four strategies over the identical conversation, with tokens counted
+by the library's own approximate counter. No provider is needed. The script
+lives under \code{code/ch12/} and runs in under a second.
+
+Cost is linear in input tokens, so measuring tokens is measuring cost up to a
+price multiplier that varies by provider and changes monthly. The script measures
+the tokens and leaves the multiplication to you.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrrrrX@{}}
+\toprule
+\textbf{Strategy} & \textbf{Billed tokens} & \textbf{vs naive} & \textbf{Final context} & \textbf{Summaries} \\
+\midrule
+Naive & 43,510 & 1.00$\times$ & 4,350 & 0 \\
+Projected & 6,910 & \textbf{0.16}$\times$ & 690 & 0 \\
+Summarised & 28,180 & 0.65$\times$ & 1,795 & 1 \\
+Both & 6,910 & 0.16$\times$ & 690 & 0 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Three findings, and the first is the chapter.
+
+\textbf{Projecting tool results cut the bill by 84\%.} Summarising history cut it
+by 35\%. The technique everybody writes about is worth less than half of the
+technique almost nobody applies.
+
+\textbf{``Both'' is identical to ``projected''.} Not similar --- identical, to
+the token. Once tool results are projected, a ten-turn conversation never reaches
+the summarisation threshold at all, so the summariser never fires. Trimming the
+dominant consumer removed the need for the other technique entirely.
+
+\textbf{The summarised row is flattered.} Summarisation costs a model call, and
+the script does not count it. The real gap is wider than 35\% against 84\%.
+
+\mermaidfig{ctx-window-budget}{%
+  Where the tokens go, and what each strategy removes.}{%
+  Context composition under the naive and projected strategies.}
+
+\begin{warning}
+\textbf{The 84\% depends on the tool returning a fat payload.} Mine returns about
+forty fields because that is what incident-management and order APIs actually
+return; a tool that already returns three fields has nothing to project and the
+ratio collapses.
+
+That is not a weakness of the result --- it is the actionable form of it.
+\textbf{Go and look at what your tools return.} If the answer is ``whatever the
+API gave us'', you have a 5$\times$ cost reduction available and nobody has taken
+it.
+\end{warning}
+
+\begin{note}
+The library agrees with the finding, which is worth noticing. The in-box context
+editing middleware's only built-in edit type is called \api{ClearToolUsesEdit},
+and what it clears is tool output. When the framework's default remedy targets
+tool results rather than history, that is a strong hint about where the tokens
+are.
+\end{note}
+
+% ============================================================
+\section{Projecting tool results}
+\label{sec:projection}
+\index{tools!result projection}
+
+The fix is unglamorous and it is the highest-leverage change in this book:
+
+\begin{python}[caption={Return what the model needs, not what the API sent}, label={lst:projection}]
+def project(raw: str) -> str:
+    """Return the three fields the model needs to answer the question.
+
+    Everything else is still available -- the model can ask for it by id. What
+    it must not do is carry all of it in context for the rest of the run.
+    """
+    d = json.loads(raw)
+    return json.dumps({"id": d["id"], "status": d["status"],
+                       "severity": d["severity"]})
+\end{python}
+
+The key phrase is \emph{still available}. Projection is not deletion. Keep the
+full payload wherever you like --- a store, a cache, a second tool that fetches
+detail by id --- so the model can ask for more when it genuinely needs it. What
+you are refusing is to carry forty fields through every subsequent turn on the
+chance that one of them matters.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Technique} & \textbf{Use when} \\
+\midrule
+Field projection & The response shape is known. Best ratio, no loss of anything
+  you chose to keep. \\[3pt]
+Truncation with a marker & The response is free text of unknown shape. Say it was
+  truncated, or the model treats the fragment as complete. \\[3pt]
+Return a handle & The payload is large and rarely needed in full. Return an id
+  and a summary; add a tool that fetches by id. \\[3pt]
+Summarise the result & Long prose that must be preserved in substance. Costs a
+  model call --- price it against just truncating. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+Truncating silently is worse than truncating. A model handed the first 500
+characters of a list has no way to know the list continued, and will answer as
+though it saw everything --- confidently. Always leave a marker saying what was
+removed and how to get it.
+\end{warning}
+
+% ============================================================
+\section{Compaction}
+\label{sec:compaction}
+\index{summarisation}
+
+For conversations long enough that even projected history grows, summarisation
+replaces old turns with a summary. Chapter~\ref{ch:agents} covered the
+middleware's real signature; the design questions are here.
+
+\mermaidfig{ctx-compaction}{%
+  Compaction, and the thing it cannot know.}{%
+  History before and after summarisation.}
+
+\textbf{The trigger.} Use the fraction form --- a proportion of the model's own
+maximum --- rather than an absolute token count, because it survives a model
+change. An absolute threshold tuned for a 128k window is wrong the day you move
+to a 1M one, and wrong in the expensive direction.
+
+\textbf{What it loses.} Exact detail. If turn three established a constraint
+(``never contact this customer by phone'') and the summary does not carry it, the
+model will violate it at turn twelve and there is no error --- just a wrong
+answer. A summariser cannot know which detail will matter later.
+
+\textbf{The mitigation.} Keep durable constraints out of the conversation
+entirely. Facts that must survive belong in the store
+(Chapter~\ref{ch:persistence}) and get injected into the prompt, not left in the
+history hoping the summariser preserves them.
+
+\begin{note}
+Compaction is a second-line technique. \S\ref{sec:context-measurement} measured
+it at less than half the value of projection, it costs a model call each time it
+fires, and it loses information irreversibly. Project first; summarise only when
+projection is not enough.
+\end{note}
+
+% ============================================================
+\section{Prompt caching}
+\label{sec:prompt-caching}
+\index{prompt caching}
+
+Most providers will cache a prefix of your request and charge substantially less
+for the cached part. The saving is large and the mechanism is unforgiving:
+\textbf{it is prefix matching}. One changed token near the front invalidates
+everything after it.
+
+\mermaidfig{ctx-cache-points}{%
+  Why message order determines whether caching works at all.}{%
+  Cache-friendly and cache-hostile layouts.}
+
+The rule that follows: \textbf{stable content first, volatile content last}.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Order} & \textbf{Content} \\
+\midrule
+1 & System prompt --- identical on every call \\
+2 & Tool definitions --- change only on deploy \\
+3 & Retrieved documents, if stable for the conversation \\
+4 & Conversation history --- append-only \\
+5 & The new user message \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Three things that quietly destroy the hit rate, all of them things people do for
+good reasons:
+
+\textbf{A timestamp in the system prompt.} ``The current time is
+2026-08-04T11:02:07Z'' changes every call and invalidates the entire prefix. If
+the model needs the time, give it a tool.
+
+\textbf{Per-user personalisation at the front.} Injecting the user's preferences
+into the system prompt gives every user a different prefix. Put the stable part
+first and the personalised part after it.
+
+\textbf{Editing history.} Anything that rewrites an old message --- including
+\api{add\_messages} replacing by id (Chapter~\ref{ch:stategraph}), and including
+summarisation itself --- changes the prefix from that point on. Summarisation is
+worth its cache invalidation; an idle tidy-up of old messages is not.
+
+\begin{warning}
+Caching and compaction pull against each other. Every summarisation rewrites the
+prefix and throws away the cache for the whole conversation. That is usually
+still the right trade at the point compaction fires --- but it means summarising
+early and often is doubly wrong: you pay for the summarisation call and you lose
+the cache.
+\end{warning}
+
+% ============================================================
+\section{Degradation before the limit}
+\label{sec:degradation}
+
+Context does not fail at the limit. It degrades before it, and the practical rule
+is more useful than the literature.
+
+Models attend unevenly across a long context, with material at the beginning and
+end weighted more heavily than material in the middle. The size of that effect
+varies by model and moves with each release, so treat specific figures with
+suspicion --- including any this book might have quoted.
+
+What follows regardless:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item \textbf{Position matters.} Put the instruction that must be followed near
+      the end, not buried in the middle of a long history.
+\item \textbf{A bigger window is not a plan.} Filling a 1M window costs 1M
+      tokens' worth of money on every turn, and quality does not improve
+      monotonically with what you put in it.
+\item \textbf{Relevance beats volume.} Ten well-chosen documents outperform a
+      hundred retrieved ones, and cost a fifteenth as much.
+\end{itemize}
+
+\begin{note}
+This is the one section of the chapter with no measurement behind it, and it is
+labelled as judgement accordingly. Measuring positional degradation properly
+needs a model, a task with a checkable answer, and enough runs to separate the
+effect from ordinary variance --- and the result would be specific to the model
+version tested. The structural advice above holds regardless of the number.
+\end{note}
+
+% ============================================================
+\section{Tools and memory in the budget}
+\label{sec:tools-memory-context}
+
+Two smaller consumers worth naming.
+
+\textbf{Tool definitions are context.} Every tool's name, description and
+argument schema is sent on every call. Twenty tools with thorough descriptions
+is a meaningful standing cost before the conversation starts --- and
+Chapter~\ref{ch:tools} showed selection quality degrades around that count
+anyway. The tool selector middleware narrows the set per call; subagent
+partitioning (Chapter~\ref{ch:multi-agent}) narrows it structurally.
+
+\textbf{Injected memory is context.} A user profile pulled from the store
+(Chapter~\ref{ch:persistence}) and injected on every turn is a fixed per-turn
+cost. Inject what changes behaviour, not everything you know. And inject it in a
+stable position, or you break the cache --- \S\ref{sec:prompt-caching}.
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch12-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Every turn re-sends the whole conversation, and an agent turn does it
+      twice. Growth is not linear.
+\item \textbf{Measured: projecting tool results cut billed tokens 84\%;
+      summarising history cut 35\%.} The dominant consumer is the one nobody
+      trims.
+\item \textbf{Measured: with projection, summarisation never fired at all} over
+      ten turns. Fix the big consumer and the second technique becomes
+      unnecessary.
+\item The ratio depends on your tools returning fat payloads. Go and look at what
+      they return.
+\item Projection is not deletion --- keep the payload addressable by id.
+\item Never truncate silently. A model given a fragment answers as though it were
+      complete.
+\item Trigger compaction on a fraction of the model's maximum, not an absolute
+      count.
+\item Caching is prefix matching: stable first, volatile last. A timestamp in the
+      system prompt costs you the entire cache.
+\item Compaction invalidates the cache, so summarising early and often is doubly
+      expensive.
+\item Constraints that must survive belong in the store, not in history.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Run \code{code/ch12/context\_cost.py}. Then replace the fat payload
+with one of your own tool's real responses and re-run. The ratio is the size of
+the prize available in your codebase today.
+
+\textbf{2.} Set \code{SUMMARISE\_AT} low enough that summarisation fires in the
+projected run too. Does ``both'' beat ``projected'' then? Decide what that tells
+you about when compaction earns its place.
+
+\textbf{3.} Instrument a real agent to print context composition per turn: system
+prompt, tool definitions, history, tool results. Most people are surprised, and
+the surprise is the point.
+
+\textbf{4.} Put a timestamp in a system prompt and watch the cache hit rate in
+your provider's usage reporting. Then move it to a tool.
+
+\textbf{5.} Take a conversation where a constraint was set early, summarise it,
+and check whether the constraint survived. Then move the constraint to the store
+and repeat.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 09 --- context engineering.} Tool-result projection across all five
+of Ops Copilot's tools, summarisation at a fraction-based threshold, a
+cache-friendly message order, and a per-conversation cost report.
+
+The test contract in \code{stages/09-context/README.md} asks for both halves, and
+the second is the one that gets skipped: projection must reduce tokens
+\emph{and} must not change the answers on the fixture set. A projection that
+drops a field the agent needed is a correctness regression wearing a cost
+improvement's clothes.
+
+The measurement harness needs no provider, so the cost report belongs in CI ---
+where a change that doubles context is visible in a diff rather than in an
+invoice six weeks later.
+\end{projectbox}

@@ -60,9 +60,9 @@
 </p>
 
 <div class="banner">
-  <strong>Chapters 1, 3, 7, 8&ndash;11 and 13 are written.</strong> The rest are
+  <strong>Chapters 1, 3, 7 and 8&ndash;13 are written.</strong> The rest are
   not. Part III is complete. The structure, build and diagram pipeline are in
-  place and the book compiles clean at 172 pages. Every unwritten chapter prints a visible <em>not yet written</em> marker
+  place and the book compiles clean at 180 pages. Every unwritten chapter prints a visible <em>not yet written</em> marker
   carrying its own brief, and CI publishes the count on every build — so the page
   count never flatters the state of the work.
 </div>
@@ -95,10 +95,10 @@
 </table>
 </div>
 
-<h2>Five experiments, two and a half run</h2>
+<h2>Five experiments, three and a half run</h2>
 <p>
   The differentiator is meant to be original measurement rather than assertion.
-  Five experiments are specified; two and a half have been run, and every claim
+  Five experiments are specified; three and a half have been run, and every claim
   resting on the others stays explicitly labelled as judgement.
 </p>
 <div class="scroll">
@@ -111,6 +111,10 @@
     concurrent: p50 flat at ~103&nbsp;ms, throughput 10→349/s. One request in
     twenty blocking cost <strong>44% of throughput</strong> and degraded the
     nineteen that were innocent.</td></tr>
+  <tr><th>Ch. 12 — context</th><td>Ten turns, realistic tool payloads.
+    Projecting tool results cut billed tokens <strong>84%</strong>; summarising
+    history cut 35% — and with projection the summariser never fires at
+    all.</td></tr>
   <tr><th>Ch. 11 — topologies</th><td>Structural half only. Model calls: single
     agent 2, pipeline/swarm 3, orchestrator and supervisor 5. Three of a
     supervisor's five calls are routing rather than work. The quality half still
@@ -118,8 +122,8 @@
 </table>
 </div>
 <p>
-  Still outstanding: cost across four context strategies, tool-selection accuracy,
-  and whether a supervisor actually answers better than a single agent.
+  Still outstanding: cache hit rate, tool-selection accuracy, and whether a
+  supervisor actually answers better than a single agent.
 </p>
 
 <h2>The mini-project</h2>

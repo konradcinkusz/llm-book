@@ -12,9 +12,9 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **Chapters 1, 3, 7, 8–11 and 13 are written. The rest are not.** Part III is
+> **Chapters 1, 3, 7 and 8–13 are written. The rest are not.** Part III is
 > complete. The structure, build and diagram pipeline are in place and the book
-> compiles clean at 172 pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
+> compiles clean at 180 pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
 > its own brief, and CI reports the count on every build, so the page count never
 > flatters the state of the work.
 >
@@ -58,12 +58,13 @@ which over ninety per cent of wall-clock time is spent waiting on a network, and
 the interesting failure modes — a swallowed cancellation, an unbounded queue, a
 blocking call in a coroutine — show up in production rather than in a notebook.
 
-### Five experiments, two and a half run
+### Five experiments, three and a half run
 
 The book's differentiator is meant to be original measurement rather than
-assertion. Five experiments are fully specified in the chapters; **one has been
-run.** Until an experiment runs, every claim it would support is explicitly
-labelled as judgement and Appendix B's table for it stays empty.
+assertion. Five experiments are fully specified; **three and a half have been
+run**, all of them without a provider. Until an experiment runs, every claim it
+would support is explicitly labelled as judgement and Appendix B's table for it
+stays empty.
 
 **Experiment 1 (Chapter 3)** is done and reproducible in thirty seconds with no
 provider — twenty requests against a localhost server with a fixed 100 ms delay,
@@ -92,6 +93,20 @@ HTTP, mocked provider, 400 requests per cell:
 
 Latency flat, throughput linear — and **one request in twenty doing something
 blocking costs 44% of throughput** and degrades the nineteen that were innocent.
+
+**Experiment 3 (Chapter 12)** measured four context strategies over a ten-turn
+conversation:
+
+| Strategy | Billed tokens | vs naive |
+|---|---|---|
+| naive | 43,510 | 1.00× |
+| projected tool results | 6,910 | **0.16×** |
+| summarised history | 28,180 | 0.65× |
+| both | 6,910 | 0.16× |
+
+**Projecting tool results cut the bill 84%; summarising history cut 35%** — and
+with projection the summariser never fires at all. The technique everyone writes
+about is worth less than half the one almost nobody applies.
 
 **Experiment 5 (Chapter 11)** split in two, and the free half is done. Structural
 cost — model calls and context carried — is a property of the topology rather
