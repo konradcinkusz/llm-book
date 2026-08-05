@@ -1,0 +1,18 @@
+graph TB
+  S["You need a model to do something"] --> Q1{"more than one<br/>or two calls?"}
+  Q1 -->|no| SDK["USE THE PROVIDER SDK.<br/>Fewer moving parts, faster to<br/>debug, nothing to go stale."]
+  Q1 -->|yes| Q2{"a loop of unknown<br/>length?"}
+  Q2 -->|no| Q3{"needs to survive a<br/>restart, or pause for<br/>a human?"}
+  Q2 -->|yes| AG["create_agent"]
+  Q3 -->|no| SDK2["Provider SDK plus<br/>a for loop"]
+  Q3 -->|yes| AG
+  AG --> Q4{"branches, parallelism,<br/>joins, or deterministic<br/>steps between calls?"}
+  Q4 -->|no| STOP["Stay here.<br/>create_agent is enough."]
+  Q4 -->|yes| SG["StateGraph"]
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef out fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef sdk fill:#FDF3E0,stroke:#B26A00,stroke-width:2px
+  class S,Q1,Q2,Q3,Q4 n
+  class AG,SG,STOP out
+  class SDK,SDK2 sdk

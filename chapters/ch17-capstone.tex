@@ -7,43 +7,237 @@ the half that gets read.
 \end{quote}
 
 \noindent
-The mini-project is finished by the time you reach this chapter; it was built a
-stage at a time across the preceding sixteen. This chapter deliberately
-introduces no new API. It walks the completed system as a set of decisions --- what
-was chosen, what was rejected, what it cost, and what would have to change for
-the rejected option to win.
+Ops Copilot is finished by the time you reach this chapter; it was built a stage
+at a time across the preceding sixteen. This chapter deliberately introduces no
+new API. It walks the completed system as a set of decisions --- what was chosen,
+what was rejected, and what it cost.
 
-\chapterstub{
-\textbf{Argument.} A system is best explained by its rejected alternatives. The
-chapter is therefore organised as a decision log rather than a tour of the
-codebase.
+% ============================================================
+\section{The system}
+\label{sec:capstone-system}
 
-\textbf{Sections.} (17.1) The finished system end to end, at a level someone
-could rebuild from. (17.2) The decision log, each entry stating the choice, the
-alternative, the reason and the cost: why single-agent rather than a supervisor;
-why \code{durability="sync"} on one path and \code{"async"} on the rest; why an
-idempotency key rather than a distributed transaction; why SSE rather than
-WebSockets; why Postgres rather than Redis; why retrieval as a tool rather than
-a fixed step. (17.3) What the numbers came out at: cost per conversation, p95
-latency, evaluation scores, tokens per turn --- collected from the measurements
-made throughout the book rather than asserted here. (17.4) What broke while
-building it, honestly. (17.5) What is deliberately missing and what it would take
-to add. (17.6) Turning the project into something legible to a reviewer or an
-interviewer --- what a decisions section should contain and what makes one
-worthless.
+\mermaidfig{capstone-architecture}{%
+  The finished system. Every arrow is a chapter.}{%
+  Ops Copilot, assembled.}
 
-\textbf{Listings.} No new API surface. Only assembled excerpts already introduced
-elsewhere, shown in their final form.
+A FastAPI service holding an agent built once in \code{lifespan}. A request
+acquires a per-thread advisory lock, then runs a \api{StateGraph} whose middleware
+audits, redacts and limits. The graph retrieves, fans out over the retrieved
+documents with \api{Send}, synthesises, and --- for the one irreversible action ---
+stops at an \api{interrupt} until a human answers. State lives in Postgres, so
+any pod can serve any conversation and a paused run is a row rather than a held
+thread.
 
-\textbf{Diagrams.} \code{capstone-architecture} --- the finished system.
-\code{capstone-graph} --- the actual compiled graph, rendered from the running
-code rather than drawn by hand. \code{capstone-decision-log} --- the decisions as
-a table-diagram with their alternatives.
+% ============================================================
+\section{The decision log}
+\label{sec:decisions}
 
-\textbf{Mini-project.} Final stage: the complete service, plus the decisions
-document that is the point of the whole exercise.
+Each entry: the choice, the rejected alternative, the reason, the cost.
 
-\textbf{Source topics covered.} Part~IX 9.2; and the collected measurements from
-Chapters~\ref{ch:asyncio}, \ref{ch:tools}, \ref{ch:multi-agent},
-\ref{ch:context} and \ref{ch:serving}.
-}
+\subsection{Single agent rather than a supervisor}
+
+\textbf{Rejected:} a supervisor routing to specialist workers.
+\textbf{Reason:} Chapter~\ref{ch:multi-agent} measured the structural overhead at
+2.8$\times$ the context and 2.5$\times$ the model calls, with three of five calls
+spent on routing rather than work. None of the four symptoms that justify
+multi-agent applied --- the prompt is manageable, there are five tools, the
+parallelism we need is \api{Send} within one agent, and nothing needs an
+independent critic.
+\textbf{Cost:} if the tool count grows past twenty
+(Chapter~\ref{ch:tools}), this decision has to be revisited.
+\textbf{What would change it:} the quality half of the experiment, still unrun,
+showing a supervisor answers materially better.
+
+\subsection{Postgres rather than Redis}
+
+\textbf{Reason:} durability over latency. Checkpoint writes are not on the
+critical path in a workload dominated by provider latency
+(Chapter~\ref{ch:asyncio}), and Postgres gives us the advisory lock
+(Chapter~\ref{ch:serving}) in the same system.
+\textbf{Cost:} higher write latency per superstep than Redis would give.
+
+\subsection{\texorpdfstring{\code{durability="sync"}}{durability sync} on the email path only}
+
+\textbf{Reason:} Chapter~\ref{ch:persistence} showed the mode is per invocation.
+The path that can send email pays for the safest setting; question-answering does
+not.
+\textbf{Cost:} an extra checkpoint write per superstep on one path.
+
+\subsection{An idempotency key rather than a distributed transaction}
+
+\textbf{Reason:} Chapter~\ref{ch:persistence} measured the replay sending the
+email twice. A distributed transaction across our database and a third-party mail
+API is not available; a key derived from the intent is, and it is what the mail
+provider itself supports.
+\textbf{Cost:} correctness now depends on the key being derived from the intent
+rather than the attempt --- a subtlety that needs a comment and a test.
+
+\subsection{SSE rather than WebSockets}
+
+\textbf{Reason:} the interaction is request-then-stream. SSE traverses proxies
+without an upgrade and the browser reconnects for us
+(Chapter~\ref{ch:serving}).
+\textbf{Cost:} the user cannot interrupt mid-generation; the double-texting
+policy is reject-with-409 rather than interrupt.
+
+\subsection{Retrieval as a tool rather than a fixed step}
+
+\textbf{Reason:} not every question needs retrieval, and a fixed step pays for it
+every time --- which Chapter~\ref{ch:context} showed is the dominant cost.
+\textbf{Cost:} the model sometimes fails to retrieve when it should, which is a
+trajectory-evaluation problem (Chapter~\ref{ch:observability}) rather than a
+code one.
+
+\subsection{Projecting tool results}
+
+\textbf{Reason:} Chapter~\ref{ch:context} measured 84\% of the bill.
+\textbf{Cost:} a projection that drops a field the agent needed is a correctness
+regression wearing a cost improvement's clothes --- which is why the stage
+contract requires the answers to be unchanged as well as the tokens reduced.
+
+% ============================================================
+\section{The numbers}
+\label{sec:capstone-numbers}
+
+Collected from the measurements made throughout, not asserted here.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Measured} & \textbf{Result} & \textbf{Where} \\
+\midrule
+Concurrency & 16$\times$ from sequential to concurrent; the cap sets the ceiling
+  exactly & Ch.~\ref{ch:asyncio} \\[3pt]
+GIL & Threads 3.7$\times$ for four CPU units; processes 1.0$\times$ &
+  Ch.~\ref{ch:asyncio} \\[3pt]
+One blocking call & 50\,ms $\rightarrow$ 500\,ms in-process; 44\% of service
+  throughput & Ch.~\ref{ch:asyncio}, \ref{ch:serving} \\[3pt]
+Service scaling & p50 flat at 103\,ms from 1 to 40 concurrent; 10
+  $\rightarrow$ 349/s & Ch.~\ref{ch:serving} \\[3pt]
+Context strategy & Projection cut billed tokens 84\%; summarisation 35\% &
+  Ch.~\ref{ch:context} \\[3pt]
+Topology overhead & Supervisor 2.8$\times$ context, 2.5$\times$ calls &
+  Ch.~\ref{ch:multi-agent} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\textbf{What is still unmeasured}, stated plainly because a decisions document
+that hides its gaps is worthless:
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+\item Whether a supervisor answers \emph{better} (Ch.~\ref{ch:multi-agent}).
+\item Tool-selection accuracy against tool count and description quality
+      (Ch.~\ref{ch:tools}).
+\item Cache hit rate under real provider caching (Ch.~\ref{ch:context}).
+\end{itemize}
+
+All three need a provider budget. Every claim resting on them is labelled as
+judgement wherever it appears, and Appendix~\ref{app:cheatsheet}'s tables for
+them are empty.
+\end{warning}
+
+% ============================================================
+\section{What broke while building it}
+\label{sec:what-broke}
+
+Worth recording, because the finished thing conceals it.
+
+\textbf{A load test that measured itself.} Two attempts at
+Chapter~\ref{ch:serving}'s benchmark produced nonsense --- first because the
+driver shared an event loop with the server, then because the client saturated
+before the server did. The tell was the blocking scenario out-throughputting the
+clean one. The fix was calibration against a no-op endpoint.
+
+\textbf{No in-box fake implements \code{bind\_tools}.} Discovered while writing
+Chapter~\ref{ch:interrupts}'s streaming examples, and it blocks every later
+stage's tests until a five-line subclass exists.
+
+\textbf{A visualisation that lied.} A \api{Command}-returning node without a
+return annotation draws a graph missing the edge it actually takes
+(Ch.~\ref{ch:stategraph}). It runs correctly, so nothing fails --- you simply
+believe a wrong diagram.
+
+\textbf{Three documented signatures that were wrong.} The call-limit parameter,
+the summarisation trigger and \api{create\_react\_agent}'s status. In every case
+the installed package was right.
+
+% ============================================================
+\section{Writing the decisions document}
+\label{sec:writing-decisions}
+
+If you build this as a portfolio piece, the decisions document is the
+deliverable. A reviewer reads it; nobody reads the code.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}XX@{}}
+\toprule
+\textbf{A worthless entry} & \textbf{A useful one} \\
+\midrule
+``We used Postgres for persistence.'' & ``Postgres over Redis: durability over
+  latency, and it gives us the advisory lock in the same system. Costs write
+  latency per superstep.'' \\[3pt]
+``We added a human approval step.'' & ``The gate is its own node because code
+  before \code{interrupt} re-runs on resume --- measured at twice.'' \\[3pt]
+``We used a single agent.'' & ``Measured a supervisor at 2.8$\times$ context for
+  no measured quality gain. Revisit past twenty tools.'' \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The difference is the rejected alternative and the cost. An entry without both is
+a description of what exists, and what exists is already visible in the
+repository.
+
+\begin{note}
+The same applies in an interview. ``I used LangGraph'' invites no follow-up. ``I
+used a single agent because I measured the supervisor at nearly three times the
+context for no quality gain I could demonstrate, and I'd revisit it if the tool
+count grew'' is a conversation --- and it is the same sentence you would write in
+the document.
+\end{note}
+
+% ============================================================
+\section{What is deliberately missing}
+\label{sec:missing}
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Multi-tenancy beyond namespacing.} Store namespaces isolate
+      (Ch.~\ref{ch:persistence}); a real multi-tenant deployment needs
+      row-level security and a tenancy story for the checkpointer.
+\item \textbf{Retrieval quality.} Retrieval is a tool that works; chunking,
+      hybrid search and reranking are a book of their own.
+\item \textbf{A queue for long work.} Chapter~\ref{ch:serving} argues for it and
+      the mini-project stays synchronous, because the tasks are short enough.
+\item \textbf{Fine-tuning, and self-hosted models.} Out of scope throughout.
+\end{itemize}
+
+% ============================================================
+\section{Where to go next}
+\label{sec:ch17-next}
+
+Three things, in the order that pays.
+
+\textbf{Run the three outstanding experiments.} They are specified, the harnesses
+exist, and each converts a labelled judgement into a fact.
+
+\textbf{Put the evaluation set in front of an upgrade.} Chapter~\ref{ch:security}
+argued the pin-and-upgrade posture; the evaluation set is what makes it safe, and
+it is the practice most teams skip.
+
+\textbf{Read the package.} Every chapter of this book found something where the
+installed code and the published description disagreed. That will keep being true
+after this book is stale --- and it is the habit, rather than any particular fact
+in here, that is worth taking away.
+
+\begin{projectbox}
+\textbf{Final stage.} The assembled service plus \code{docs/DECISIONS.md}.
+
+Nothing new is built. The deliverable is the document, and its contract is
+explicit: each entry states the choice, the rejected alternative, the reason and
+the cost. Entries that only record what was built do not count --- the rejected
+options are the content.
+\end{projectbox}

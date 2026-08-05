@@ -1,0 +1,27 @@
+graph TB
+  U["client"] -->|"SSE"| API["FastAPI<br/>lifespan-built agent"]
+  API --> LOCK["per-thread advisory lock"]
+  LOCK --> G["StateGraph"]
+
+  G --> MW["middleware:<br/>audit, PII, call limit,<br/>approval gate"]
+  G --> N1["retrieve"]
+  N1 -->|"Send fan-out"| N2["analyse x N"]
+  N2 --> N3["synthesise"]
+  N3 --> GATE["interrupt: approve send?"]
+  GATE --> N4["send_email<br/><i>idempotency key</i>"]
+
+  G <--> PG[("Postgres<br/>checkpointer + store")]
+  API --> OTEL["traces, cost per conversation"]
+
+  N["Every arrow in this diagram is a chapter.<br/>Nothing here is new in Chapter 17."]
+
+  G -.- N
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef db fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef gate fill:#FDF3E0,stroke:#B26A00,stroke-width:2px
+  classDef note fill:#FFFFFF,stroke:#D8DEE4,color:#5A5A5A
+  class U,API,LOCK,G,MW,N1,N2,N3,OTEL n
+  class PG db
+  class GATE,N4 gate
+  class N note

@@ -10,45 +10,260 @@ shipping.
 Three subjects, one argument: you cannot improve what you cannot see, and you
 cannot change what you cannot re-measure. This is the chapter that separates
 people who have run an agent in production from people who have built one.
-It covers tracing, the evaluation discipline that makes prompt changes safe, and
-a testing strategy that puts a real suite in CI without a single billed model
-call.
 
-\chapterstub{
-\textbf{Argument.} Non-determinism does not make agents untestable; it makes
-\emph{text assertions} untestable. Assert on behaviour --- which tool was called,
-whether the schema validates, how many steps it took --- and the suite is as
-deterministic as any other.
+% ============================================================
+\section{Tracing}
+\label{sec:tracing}
+\index{observability!tracing}
 
-\textbf{Sections.} (14.1) Tracing with LangSmith: environment-variable
-activation, what a trace contains, \api{@traceable} for your own functions.
-(14.2) The alternatives when a client will not accept a SaaS backend:
-OpenTelemetry, Langfuse, Phoenix --- with what you give up. (14.3) The metrics
-worth a dashboard: latency, time to first token, cost per conversation, step
-count, task completion. (14.4) Evaluation: datasets, evaluators, and the split
-between deterministic checks and judged ones. (14.5) Trajectory evaluation ---
-scoring the path, not just the answer, which is the agent-specific part.
-(14.6) LLM-as-judge: construction, calibration against human labels, and the
-failure modes that make an uncalibrated judge worse than no judge. (14.7)
-Evaluating RAG: retrieval scored separately from generation, and why combining
-them hides the actual defect. (14.8) Evaluation in CI: regression thresholds,
-prompt A/B tests, and handling flakiness without disabling the gate. (14.9)
-Testing: fake models, node tests, the integration layer kept small and marked.
-(14.10) Prompt versioning and changing a prompt without a deploy.
+Tracing switches on with environment variables --- \code{LANGSMITH\_TRACING},
+an API key, a project name --- and from that point every \api{Runnable} and every
+graph node appears in a trace without further code. That low activation cost is
+the whole reason to do it before you think you need it.
 
-\textbf{Listings.} A fake chat model returning scripted tool calls; a node test;
-a twenty-case evaluation set with three evaluator types; the CI job with a
-regression threshold; a judge calibrated against hand labels, with its agreement
-rate reported.
+What a trace gives you that logs do not: the prompt \emph{as sent} after every
+middleware has modified it, the tool arguments the model actually chose, token
+counts per step, and latency attributed per node rather than per request.
 
-\textbf{Diagrams.} \code{obs-trace-anatomy} --- one agent run as a trace tree
-with cost and latency annotated. \code{eval-ladder} --- deterministic checks,
-judged checks, human review, by cost and by confidence. \code{test-pyramid-agents}
---- what is tested at which layer, and what a real model call is reserved for.
+\code{@traceable} adds your own functions to the same trace, which matters
+because the interesting question is usually ``what did our retrieval do'' rather
+than ``what did the model do''.
 
-\textbf{Mini-project.} Stage 11: tracing wired up, a twenty-case evaluation set
-running in CI with a threshold, and a full test suite that makes no real model
-calls.
+\begin{note}
+\textbf{When a client will not accept a SaaS backend} --- and in regulated
+sectors many will not --- OpenTelemetry, Langfuse and Phoenix are the
+alternatives, the first being the one that keeps you portable. You lose the
+tighter integration with datasets and evaluation runs; you keep the traces, which
+is the part you cannot reconstruct later.
 
-\textbf{Source topics covered.} Part~VII 7.1--7.9; Part~IX 9.7 (partial).
-}
+Do not let this become a reason to have no tracing. Chapter~\ref{ch:asyncio}'s
+blocking call and Chapter~\ref{ch:multi-agent}'s handoff loop are both nearly
+undiagnosable without one.
+\end{note}
+
+\subsection{The metrics worth a dashboard}
+\label{sec:metrics}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Metric} & \textbf{Why} \\
+\midrule
+Cost per conversation & The number that decides whether the product works.
+  Chapter~\ref{ch:context} moved it 5$\times$. \\[3pt]
+Time to first token & What a user experiences as speed
+  (Chapter~\ref{ch:interrupts}). \\[3pt]
+Steps per run & Rises before anything breaks. The earliest warning of a
+  loop. \\[3pt]
+Tool error rate, per tool & One flaky tool degrades everything downstream of
+  it. \\[3pt]
+Task completion & The only one that measures the product rather than the
+  system. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================
+\section{Evaluation}
+\label{sec:evaluation}
+\index{evaluation}
+
+The surface lives in \pkg{langsmith}:
+
+\begin{python}[caption={An evaluation run}, label={lst:evaluate}]
+from langsmith import evaluate
+
+results = evaluate(
+    target,                      # what to run
+    data="ops-copilot-v1",       # the dataset
+    evaluators=[called_the_right_tool, schema_valid, judged_relevance],
+    num_repetitions=5,           # run each case N times
+    max_concurrency=8,
+)
+\end{python}
+
+Also present: \code{aevaluate} for the async twin, \code{evaluate\_existing} to
+re-score runs you already have, and \code{evaluate\_comparative} for A/B.
+
+\begin{note}
+\code{num\_repetitions} is a first-class parameter, and its presence is a
+statement. Running each case once tells you what happened once. Running it five
+times tells you the \emph{distribution}, which for a non-deterministic system is
+the only honest summary --- and it is exactly the discipline
+Chapter~\ref{ch:multi-agent} insisted on for the topology benchmark. The API
+agrees with the book.
+\end{note}
+
+\mermaidfig{eval-ladder}{%
+  Four tiers by cost and confidence. Push work downwards.}{%
+  The evaluation ladder from deterministic checks to human review.}
+
+\subsection{Trajectory, not just the answer}
+\label{sec:trajectory}
+
+This is the agent-specific part and the part most teams skip. Two agents can
+produce the same final text having done completely different things --- one
+called the right tool, one guessed; one took three steps, one took eleven and
+cost four times as much.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Trajectory check} & \textbf{Catches} \\
+\midrule
+Was the expected tool called? & Silent regression when a description changes \\[3pt]
+Were unexpected tools called? & Scope creep, and injection
+  (Ch.~\ref{ch:security}) \\[3pt]
+Step count within bounds? & Loops, before the recursion limit fires \\[3pt]
+Cost within budget? & The regression nobody notices until the invoice \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+All four are deterministic, free, and computable from a trace. They belong in CI.
+
+\subsection{Judges, and why an uncalibrated one is worse than none}
+\label{sec:judges}
+\index{evaluation!LLM as judge}
+
+For qualities you cannot check mechanically --- relevance, groundedness, tone ---
+a model scores the output. It works, and it has three failure modes worth naming:
+judges prefer longer answers, prefer their own family's style, and drift when the
+judge model is upgraded underneath you.
+
+\begin{warning}
+\textbf{Calibrate against human labels and record the agreement rate.} Hand-label
+thirty cases, run the judge, and compute how often it agrees. If you cannot state
+that number, your evaluation set produces numbers of unknown meaning --- and
+because they look precise, they will be trusted more than a subjective opinion
+that at least announces itself as one.
+
+Pin the judge model explicitly, and re-calibrate when you change it. A judge
+upgraded silently moves every historical score.
+\end{warning}
+
+\subsection{In CI}
+\label{sec:eval-ci}
+
+The mechanism is easy: run the set, compare against a threshold, fail the build.
+The difficulty is flakiness --- a genuinely non-deterministic system will cross a
+tight threshold occasionally for no reason, and a gate that cries wolf gets
+disabled within a month.
+
+Three things that make it survivable: use \code{num\_repetitions} and threshold
+on the median rather than a single run; set the threshold as a delta from the
+current baseline rather than an absolute; and separate ``blocks the merge'' from
+``posts a comment''. Only the deterministic checks should block.
+
+% ============================================================
+\section{Testing}
+\label{sec:testing}
+\index{testing!fake models}
+
+\mermaidfig{test-pyramid-agents}{%
+  What runs on every commit, and what is deliberately excluded.}{%
+  The testing layers for an agent codebase.}
+
+The claim that non-determinism makes agents untestable is wrong, and precisely
+wrong: it makes \emph{text assertions} untestable. Assert on behaviour --- which
+tool was called, whether the schema validates, how many steps it took --- and the
+suite is as deterministic as any other.
+
+\begin{python}[caption={The seam everything hangs on}, label={lst:fake}]
+class ScriptedFakeChatModel(FakeMessagesListChatModel):
+    """No in-box fake implements bind_tools; see Chapter 10."""
+
+    def bind_tools(self, tools, **kwargs):
+        return self
+\end{python}
+
+Scripted to emit specific tool calls in a specific order, that fake tests graph
+topology exactly --- which branch was taken, what the reducer merged, whether the
+approval gate fired --- with no provider and no variance.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Layer} & \textbf{Tested how} \\
+\midrule
+Tools & Plain functions. Ordinary unit tests. \\[3pt]
+Reducers & Pure two-argument functions --- the cheapest test in the codebase
+  (Ch.~\ref{ch:stategraph}) \\[3pt]
+Nodes & \code{state -> dict}. No graph needed. \\[3pt]
+Graph flow & Scripted fake model \\[3pt]
+Quality & Evaluation set, not unit tests \\[3pt]
+Provider integration & A handful, marked, excluded from the default run \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+Chapter~\ref{ch:cancellation}'s trap applies with force here: if
+\code{asyncio\_mode} is lost, every \code{async def} test reports \textbf{passed}
+without running. A suite can be green and testing nothing. Have a test whose only
+job is to detect that.
+\end{warning}
+
+% ============================================================
+\section{Prompts as configuration}
+\label{sec:prompt-versioning}
+
+Changing a prompt without a deploy is attractive and is a trap in exactly one
+respect: it decouples the change from the thing that would have caught it. A
+prompt in a database that anyone can edit is a production change with no review,
+no rollback and no evaluation run.
+
+If you do it --- and there are good reasons to --- version the prompts, record
+which version served each run in the trace, and make the evaluation set part of
+the promotion path rather than something that runs afterwards.
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch14-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Tracing costs environment variables. Turn it on before you think you need
+      it; the failures it diagnoses are otherwise nearly invisible.
+\item \code{num\_repetitions} is first-class because one run of a
+      non-deterministic system tells you nothing about the distribution.
+\item Trajectory checks --- right tool, step count, cost --- are deterministic,
+      free, and the layer most teams skip.
+\item An uncalibrated judge produces precise-looking numbers of unknown meaning.
+      Record the agreement rate; pin the judge model.
+\item Non-determinism does not make agents untestable. It makes text assertions
+      untestable.
+\item Only deterministic checks should block a merge.
+\item A green suite that makes no assertions is the failure mode to test for
+      explicitly.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Build a twenty-case set with three evaluator kinds. Run it with
+\code{num\_repetitions=1}, then \code{=5}. Compare the variance and decide which
+you would gate on.
+
+\textbf{2.} Hand-label thirty outputs, run a judge over the same thirty, and
+compute the agreement. That number is the credibility of every judged score you
+will report.
+
+\textbf{3.} Deliberately worsen a prompt and confirm the gate catches it. An
+untested gate is not a gate.
+
+\textbf{4.} Write a trajectory evaluator that asserts the expected tool was
+called and the step count stayed under six. Add it to CI --- it needs no
+provider.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 11 --- observability, evaluation, testing.} Tracing wired up, a
+twenty-case evaluation set with a regression threshold in CI, and the full suite
+consolidated.
+
+The contract's non-negotiable line: \textbf{the default suite makes no real model
+calls}. If that has stopped being true, the stage has failed regardless of what
+else passes --- because the book spends a chapter arguing for it and the project
+exists to demonstrate that the argument is practical.
+\end{projectbox}

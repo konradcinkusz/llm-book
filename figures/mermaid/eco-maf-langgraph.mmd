@@ -1,0 +1,39 @@
+graph LR
+  subgraph maf["Microsoft Agent Framework"]
+    M1["Workflow"]
+    M2["Executor"]
+    M3["Edge, typed"]
+    M4["Superstep"]
+    M5["Checkpoint"]
+    M6["RequestPort — HITL"]
+    M7["AIAgent"]
+  end
+
+  subgraph lg["LangGraph"]
+    L1["StateGraph"]
+    L2["Node"]
+    L3["Edge, untyped"]
+    L4["Superstep"]
+    L5["Checkpoint"]
+    L6["interrupt()"]
+    L7["create_agent"]
+  end
+
+  M1 <--> L1
+  M2 <--> L2
+  M3 <--> L3
+  M4 <--> L4
+  M5 <--> L5
+  M6 <--> L6
+  M7 <--> L7
+
+  N["Both are Pregel-descended graph runtimes<br/>with checkpointing and human gates. The<br/>concepts transfer almost one-for-one.<br/>The sharpest difference: MAF's edges are<br/>typed and a mismatch is a SILENT DROP;<br/>LangGraph's state is a dict and a<br/>mismatch is an InvalidUpdateError."]
+
+  maf -.- N
+
+  classDef m fill:#E8F0F5,stroke:#1F4E79
+  classDef l fill:#E8F4F0,stroke:#0E7C7B
+  classDef note fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class M1,M2,M3,M4,M5,M6,M7 m
+  class L1,L2,L3,L4,L5,L6,L7 l
+  class N note
