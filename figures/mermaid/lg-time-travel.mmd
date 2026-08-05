@@ -1,0 +1,20 @@
+graph TD
+  S["__start__<br/>trail = []"] --> R["after research<br/>trail = ['researched otters']"]
+  R --> W["after write<br/>trail = [..., 'wrote about otters']"]
+  W --> V["after review<br/>trail = [..., 'reviewed']"]
+
+  R --> B1["update_state(topic='badgers')<br/>NEW checkpoint_id — a fork"]
+  B1 --> B2["after write<br/>trail = [..., 'wrote about badgers']"]
+
+  N1["Nothing is destroyed.<br/>The original tip stays readable<br/>by its checkpoint_id."]:::note
+  N2["But the THREAD HEAD moves:<br/>get_state(thread_id) now returns<br/>the branch, not the original."]:::warn
+
+  V -.- N1
+  B2 -.- N2
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef fork fill:#E8F4F0,stroke:#0E7C7B,stroke-width:2px
+  classDef note fill:#FFFFFF,stroke:#D8DEE4,color:#5A5A5A
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  class S,R,W,V,B2 n
+  class B1 fork

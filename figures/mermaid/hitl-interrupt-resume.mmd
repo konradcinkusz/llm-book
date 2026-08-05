@@ -1,0 +1,26 @@
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant P1 as Pod A
+  participant DB as Postgres<br/>(checkpointer)
+  participant H as Approver
+  participant P2 as Pod B
+
+  U->>P1: "email ops about incident 4471"
+  P1->>P1: prepare node runs
+  P1->>DB: checkpoint
+  P1->>P1: approval node: interrupt(payload)
+  P1->>DB: checkpoint — run is now a ROW
+  P1-->>U: __interrupt__ returned, request ends
+  Note over P1: Pod A holds nothing.<br/>It can be terminated now.
+
+  Note over DB,H: hours or days pass
+
+  H->>P2: POST /resume {thread_id, decision}
+  P2->>DB: load checkpoint by thread_id
+  Note over P2: Pod B never saw the original run
+  P2->>P2: approval node RESTARTS from the top
+  P2->>P2: interrupt() replays the answer, returns immediately
+  P2->>P2: send node runs
+  P2->>DB: checkpoint
+  P2-->>H: done

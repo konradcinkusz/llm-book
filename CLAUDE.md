@@ -11,20 +11,20 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3, 8, 9** | 2, 4–7, 10–17, stubbed |
+| Chapters | **1, 3, 8, 9, 10** | 2, 4–7, 11–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **128 pages**, **zero
+Build is clean: `latexmk -pdf main.tex` returns 0, **140 pages**, **zero
 unresolved references**, **9 overfull hboxes, none above 10 pt**, **zero
-overfull vboxes**. Chapters 1, 3, 8 and 9 are 58 of those pages; the rest is
-scaffolding.
+overfull vboxes**. Chapters 1, 3, 8, 9 and 10 are 70 of those pages — half the
+book is now prose rather than scaffolding.
 
 **Debt ledgers, reported by CI on every build:**
-- 19 chapters and appendices not yet written (`make stubs`)
+- 18 chapters and appendices not yet written (`make stubs`)
 - 0 screenshots requested so far
 - **0 `verifybox` blocks.** Every listing in the written chapters was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 14 Mermaid sources; all render
+- 18 Mermaid sources; all render
 
 **One of the five experiments has been run** (experiment 1, Chapter 3). The other
 four have not. See *Measurement debt* below.
@@ -260,12 +260,13 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Fourteen diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
+Eighteen diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
 `lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
 `async-gather-vs-taskgroup`, `async-blocking-call`; Chapter 8 uses
 `lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`;
 Chapter 9 uses `lg-replay-boundary`, `lg-checkpointer-vs-store`,
-`lg-durability-modes`.
+`lg-durability-modes`; Chapter 10 uses `hitl-interrupt-resume`, `lg-time-travel`,
+`stream-projections`, `double-texting-policies`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -499,6 +500,57 @@ material.
 - `AsyncPostgresSaver` is in `langgraph.checkpoint.postgres.aio`. SQLite is a
   separate distribution and is not installed in the mini-project.
 
+### Chapter 10 pass, August 2026
+
+**The v3 streaming question is settled, and the source document was right but
+incomplete.** All seven projections it named exist — `messages`, `tool_calls`,
+`values`, `output`, `subagents`, `subgraphs`, `extensions` — plus four it did
+not: **`lifecycle`, `interrupted`, `interrupts`, `abort`**. The interrupt
+projections matter: an approval prompt arrives on the same stream as the tokens,
+which is what ties this chapter together. Struck from the not-yet-verified list.
+
+**v3 is opt-in and experimental.** `version` still defaults to `"v2"`. Passing
+`"v3"` returns an `AsyncGraphRunStream` (`langgraph.stream.run_stream`) and
+raises `LangChainBetaWarning: The v3 streaming protocol on Pregel is
+experimental`. `stream_mode` and `subgraphs` are rejected with `TypeError` under
+v3 — v3 owns them. §10.6 has a versionbox.
+
+**`ToolCallStream` attributes are mutating, not awaitables.** From
+`langgraph.prebuilt._tool_call_stream`. `tool_name`, `tool_call_id` and `input`
+are available immediately; `output` is `None` and `completed` is `False` until
+you iterate `output_deltas` to exhaustion, after which `output` becomes a
+`ToolMessage`. `await call.output` raises `TypeError: object NoneType can't be
+used in 'await' expression` and `await call.completed` the same about `bool` —
+both are the natural first guess and both are wrong. Written up as a warning
+because a reader will hit it.
+
+**The interrupt re-execution trap is real and now measured.** Code before
+`interrupt()` **in the same node** ran twice; code after it ran once. A node
+*before* the gate ran once — its checkpoint held. So the hazard is confined to
+the node containing the call, which makes the fix precise: prepare, gate and act
+in three separate nodes.
+
+**`update_state` forks, but the fork becomes the thread head.** History grows
+(5 → 6 snapshots), the original tip stays readable by `checkpoint_id`, but
+`get_state({"thread_id": ...})` afterwards returns the branch. Capture the
+original checkpoint id before forking if you want it back.
+
+**Blocking finding for the mini-project: no in-box fake chat model implements
+`bind_tools`.** `GenericFakeChatModel`, `FakeListChatModel`,
+`FakeMessagesListChatModel`, `ParrotFakeChatModel` — none of them. So none can be
+used inside a `create_agent` that has tools; it raises `NotImplementedError` at
+the model node. The fix is a five-line subclass of `FakeMessagesListChatModel`
+overriding `bind_tools` to return `self`. **Stage 03's harness must do this**, and
+every streaming test depends on it. Also note `GenericFakeChatModel` streams from
+`content`, so a tool-call message with empty content raises `RuntimeError: v2
+stream finished without producing a message` — base the harness on
+`FakeMessagesListChatModel` instead.
+
+**Confirmed:** `StreamMode = Literal['values','updates','checkpoints','tasks',
+'debug','messages','custom']` — the seven the source document listed.
+`__interrupt__` is the reserved key in the returned dict, carrying
+`Interrupt(value=..., id=...)`. `runtime.stream_writer(...)` emits custom events.
+
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during
 an earlier pass.)*
@@ -526,10 +578,6 @@ declares `>=3.10`; `deepagents` declares `>=3.11`. So `\pymin` is correct at
 
 **Not yet verified — do this before writing the chapter that needs it:**
 
-- Whether event streaming `version="v3"` and the projection names in the source
-  document (`stream.messages`, `.tool_calls`, `.subagents`, `.subgraphs`,
-  `.extensions`) match the installed `langchain` 1.3.x. **Chapter 10 depends on
-  this and the source document is the only evidence for it.** Check first.
 - The exact middleware class names and their import path. The source document
   lists nine; confirm each exists and confirm the hook names.
 - `ConversationSplitters`-equivalent and the evaluation surface for Chapter 14.

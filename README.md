@@ -12,8 +12,8 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **Chapters 1, 3, 8 and 9 are written. The rest are not.** The structure,
-> build and diagram pipeline are in place and the book compiles clean at 128
+> **Chapters 1, 3, 8, 9 and 10 are written. The rest are not.** The structure,
+> build and diagram pipeline are in place and the book compiles clean at 140
 > pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
 > its own brief, and CI reports the count on every build, so the page count never
 > flatters the state of the work.
