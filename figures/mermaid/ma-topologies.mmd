@@ -1,0 +1,45 @@
+graph TB
+  subgraph P["PIPELINE — no routing call"]
+    direction LR
+    P1["extract"] --> P2["analyse"] --> P3["validate"]
+  end
+
+  subgraph SW["SWARM — direct handoff"]
+    direction LR
+    S1["billing"] -->|"Command(goto)"| S2["technical"] -->|"Command(goto)"| S3["refunds"]
+  end
+
+  subgraph SU["SUPERVISOR — router turn each way"]
+    direction TB
+    SUP["supervisor"] --> W1["worker A"]
+    SUP --> W2["worker B"]
+    W1 --> SUP
+    W2 --> SUP
+  end
+
+  subgraph OW["ORCHESTRATOR-WORKER — parallel"]
+    direction TB
+    O1["plan"] --> O2["worker"]
+    O1 --> O3["worker"]
+    O1 --> O4["worker"]
+    O2 --> O5["synthesise"]
+    O3 --> O5
+    O4 --> O5
+  end
+
+  subgraph NW["NETWORK — everyone to everyone"]
+    direction LR
+    N1["A"] <--> N2["B"]
+    N2 <--> N3["C"]
+    N1 <--> N3
+  end
+
+  classDef cheap fill:#E8F4F0,stroke:#0E7C7B
+  classDef mid fill:#F4F6F8,stroke:#1F4E79
+  classDef dear fill:#FDF3E0,stroke:#B26A00
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C
+  class P1,P2,P3 cheap
+  class S1,S2,S3 mid
+  class SUP,W1,W2 dear
+  class O1,O2,O3,O4,O5 dear
+  class N1,N2,N3 bad

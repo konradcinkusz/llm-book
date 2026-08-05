@@ -11,19 +11,20 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3, 7, 8, 9, 10** | 2, 4–6, 11–17, stubbed |
+| Chapters | **1, 3, 7, 8–11** | 2, 4–6, 12–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **150 pages**, **zero
+Build is clean: `latexmk -pdf main.tex` returns 0, **162 pages**, **zero
 unresolved references**, **10 overfull hboxes, none above 10 pt**, **zero
-overfull vboxes**. Six chapters are written and are 80 of those pages.
+overfull vboxes**. Seven chapters are written and are 92 of those pages.
+**Part III is complete.**
 
 **Debt ledgers, reported by CI on every build:**
-- 17 chapters and appendices not yet written (`make stubs`)
-- 0 screenshots requested so far
+- 16 chapters and appendices not yet written (`make stubs`)
+- 1 screenshot outstanding: `studio-multi-agent`
 - **0 `verifybox` blocks.** Every listing in the written chapters was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 21 Mermaid sources; all render
+- 24 Mermaid sources; all render
 
 **One of the five experiments has been run** (experiment 1, Chapter 3). The other
 four have not. See *Measurement debt* below.
@@ -195,7 +196,7 @@ judgement, and Appendix B's tables stay empty.
 | 2 | 13 | Concurrent conversations per process against p50/p95, with and without one blocking call | Free — mocked provider | not run |
 | 3 | 12 | Cost per conversation across four context strategies, plus cache hit rate; 10 conversations × 10 turns | Cheap | not run |
 | 4 | 6 | Tool-selection accuracy: 5 vs 20 tools × terse vs descriptive docstrings, 30 queries × 20 runs | Moderate | not run |
-| 5 | 11 | **The headline.** Single agent vs five topologies on one fixed task; turn count, token cost, latency, success rate; ≥20 runs each | Highest | not run |
+| 5 | 11 | **The headline.** Single agent vs five topologies on one fixed task; turn count, token cost, latency, success rate; ≥20 runs each | Highest | **structural half DONE**, quality half not run |
 
 Do the rest in that order — 2 is free and produces the most persuasive graph in
 the book. For 4 and 5, **keep the raw event streams, not just the summary
@@ -259,14 +260,15 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Twenty-one diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
+Twenty-four diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
 `lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
 `async-gather-vs-taskgroup`, `async-blocking-call`; Chapter 8 uses
 `lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`;
 Chapter 9 uses `lg-replay-boundary`, `lg-checkpointer-vs-store`,
 `lg-durability-modes`; Chapter 10 uses `hitl-interrupt-resume`, `lg-time-travel`,
 `stream-projections`, `double-texting-policies`; Chapter 7 uses `agent-loop`,
-`middleware-order`, `middleware-aspnet`.
+`middleware-order`, `middleware-aspnet`; Chapter 11 uses `ma-topologies`,
+`ma-supervisor-turns`, `ma-handoff-loop`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -597,6 +599,56 @@ exactly four nodes — `['__start__','model','tools','__end__']` — so middlewa
 adds none; hooks run inside the existing nodes. And a compiled agent drops into a
 larger `StateGraph` as a single node and runs. That is Chapter 11's foundation:
 topologies built out of agents rather than bespoke plumbing.
+
+### Chapter 11 pass, August 2026
+
+**Experiment 5 was split in two, and half of it is now done.** The brief treated
+the multi-agent comparison as one expensive experiment. It is really two, and
+only one needs a provider:
+
+- **Structural cost** — model calls per run and context carried per call — is a
+  property of the topology, not the model. A counting fake gives exactly the
+  answer a real provider would, in under a second, for nothing. **Run**;
+  `code/ch11/structural_cost.py`.
+- **Quality** — whether a supervisor answers better — needs a real model on a
+  real task. **Still outstanding.**
+
+Keeping them apart is worth more than either alone, because it lets the chapter
+state the cost as fact while labelling the benefit as judgement.
+
+| Topology | Model calls | Context chars | vs baseline |
+|---|---|---|---|
+| Single agent | 2 | 172 | 1.0× |
+| Pipeline (3) | 3 | 243 | 1.4× |
+| Swarm (3 hops) | 3 | 240 | 1.4× |
+| Orchestrator + 3 | 5 | 393 | 2.3× |
+| Supervisor (2) | 5 | 487 | 2.8× |
+
+**Model calls is a hard number** (topology-determined; a real provider makes the
+same count). **Context chars is indicative** — it depends on scripted reply
+lengths. Say so wherever it is quoted; do not let the 2.8× become folklore.
+
+The explainable finding: supervisor and orchestrator make the same five calls,
+but the supervisor carries more context, because every router turn re-reads the
+whole accumulating conversation while an orchestrator's workers each see only
+their slice. And **three of a supervisor's five calls are routing rather than
+work** — the sentence worth remembering from this chapter.
+
+**Confirmed:**
+
+- `langgraph-supervisor` and `langgraph-swarm` are **separate distributions and
+  are not installed**. Topologies here are hand-built from `StateGraph` +
+  `Command`, which suits the book — it shows the mechanism rather than a wrapper.
+- `Command.PARENT` handoff from inside a subgraph to a sibling of the parent
+  works as documented.
+- `@entrypoint` / `@task` return a `Pregel`, so `get_state` works and
+  checkpointing/interrupts/streaming all apply. `@task` takes the same
+  `retry_policy`, `cache_policy` and `timeout` as a node.
+
+**Reusable:** the `MeteredFakeModel` in the harness — a fake that records call
+count and context size before answering from a script — is the seed of the
+mini-project's stage 08 comparison harness and belongs in CI, since it needs no
+provider.
 
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during

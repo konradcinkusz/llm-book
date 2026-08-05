@@ -9,49 +9,419 @@ it is an architecture decision.
 \noindent
 Multi-agent is the most over-recommended pattern in the field. It is also
 genuinely the right answer in a narrow set of cases, and this chapter is about
-telling the two apart with numbers rather than taste. The five topologies are
-covered properly, and then measured against a single-agent baseline on one fixed
-task, because the interesting question is not whether a supervisor works --- it
-does --- but what it costs and what it buys.
+telling the two apart with numbers rather than taste.
 
-\chapterstub{
-\textbf{Argument.} You reach for multi-agent on symptoms, not by default: one
-agent's prompt has outgrown control, there are too many tools for one model to
-select from reliably, you need genuine parallelism, or you need an independent
-critic. Absent a symptom, a pipeline with a validator is cheaper and easier to
-debug.
+The cost question splits cleanly in two, and keeping them apart is most of the
+clarity available here.
 
-\textbf{Sections.} (11.1) The five topologies --- supervisor, swarm/handoff,
-network, pipeline, orchestrator-worker --- with structure, cost profile and
-failure mode for each. (11.2) Handoffs via \api{Command} and
-\code{Command.PARENT}, and how handoff loops happen. (11.3) Supervisor versus
-swarm: control and auditability against latency and cost. (11.4) The token
-economics: where the overhead comes from, and model selection per role.
-(11.5) Debugging a multi-agent run --- the practical difficulty and what makes it
-tractable. (11.6) The functional API: \api{@entrypoint} and \api{@task}, same
-runtime, ordinary control flow, and when it is the better shape. (11.7)
-Visualisation, \code{langgraph dev} and Studio.
+\textbf{Structural cost} --- how many model calls a topology makes, and how much
+context each carries --- is a property of the graph, not of the model. It is
+deterministic, and \S\ref{sec:structural-cost} measures it exactly, for nothing,
+with a counting fake.
 
-\textbf{Listings.} Each of the five topologies on one identical task, so they are
-comparable; a handoff loop reproduced and then bounded; the same workflow written
-as a graph and with the functional API, side by side.
+\textbf{Quality} --- whether a supervisor actually answers better --- needs a
+real model on a real task. That experiment is specified in
+\S\ref{sec:quality-experiment} and \emph{has not been run}. Every claim in this
+chapter that depends on it is labelled as judgement.
 
-\textbf{Diagrams.} \code{ma-topologies} --- all five drawn to the same scale on
-one page. \code{ma-supervisor-turns} --- sequence diagram counting model calls
-per user turn. \code{ma-handoff-loop} --- how two agents deadlock by politeness.
+% ============================================================
+\section{When, and the four symptoms}
+\label{sec:when-multi-agent}
+\index{multi-agent!when to use}
 
-\textbf{Measurement --- the book's headline experiment.} One fixed task with a
-checkable answer. Six implementations: single agent, and the five topologies.
-Model, temperature, instructions and tools held constant. Four metrics: turn
-count, token cost, wall-clock latency, success rate. Twenty runs per
-implementation minimum; medians and spreads, never best runs. Keep the raw event
-streams, not only the summary rows --- Chapter~\ref{ch:observability} re-scores
-these same runs under an evaluation harness, and re-running to recover traces is
-expensive. Until this is run, every comparative claim in the chapter is labelled
-as judgement, and the tables in Appendix~\ref{app:cheatsheet} stay empty.
+You reach for multi-agent on symptoms, not by default:
 
-\textbf{Mini-project.} Stage 08: a supervisor variant of Ops Copilot and the
-harness that compares it against the single-agent build.
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{One agent's prompt has outgrown control.} The system prompt has
+      become a document with sections, and changing one section breaks another.
+\item \textbf{Too many tools for reliable selection.} Chapter~\ref{ch:tools}
+      puts the degradation somewhere around fifteen to twenty; partitioning by
+      agent is one of the three structural answers.
+\item \textbf{You need genuine parallelism} over independent sub-tasks, and
+      \api{Send} within one agent is not enough because the branches need
+      different instructions.
+\item \textbf{You need an independent critic.} A reviewer that shares the
+      author's context is not independent, and that is a real limitation rather
+      than a stylistic one.
+\end{itemize}
 
-\textbf{Source topics covered.} Part~IV 4.21--4.25.
-}
+Absent one of those, a pipeline with a validator is cheaper, faster and
+enormously easier to debug. The default is not multi-agent; the default is one
+agent, and the burden of proof is on the topology.
+
+% ============================================================
+\section{The five topologies}
+\label{sec:topologies}
+\index{multi-agent!topologies}
+
+\mermaidfig{ma-topologies}{%
+  All five to the same scale, shaded by structural cost: green cheapest, amber
+  dear, red hardest to reason about.}{%
+  The five multi-agent topologies compared.}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Topology} & \textbf{Shape} & \textbf{Reach for it when} \\
+\midrule
+Pipeline & Fixed sequence, no routing call & The steps are known in advance.
+  Cheapest by a distance. \\[3pt]
+Swarm & Agents hand control directly to each other & A conversation moves
+  between specialisms. \\[3pt]
+Supervisor & A router chooses a worker, collects, repeats & You need control and
+  an audit trail of who did what. \\[3pt]
+Orchestrator-worker & Planner splits, workers run in parallel, a synthesiser
+  merges & Research, or N documents to process. \\[3pt]
+Network & Everyone may call everyone & Rarely. Hardest to trace, easiest to
+  loop. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+Note what a pipeline does \emph{not} have: a routing model call. The sequence is
+in your code. That is why it is the cheapest topology and why it should be the
+first thing you try --- most problems described as needing a supervisor need a
+pipeline and a validator.
+\end{note}
+
+% ============================================================
+\section{Handoffs}
+\label{sec:handoffs}
+\index{handoff}
+\index{Command@\texttt{Command}!PARENT}
+
+A handoff is Chapter~\ref{ch:stategraph}'s \api{Command}: update state and jump,
+in one return. Between siblings in one graph it is an ordinary \code{goto}.
+Across a subgraph boundary it needs \code{Command.PARENT}:
+
+\begin{python}[caption={An agent inside a subgraph handing control to a sibling of its parent}, label={lst:handoff}]
+def billing_agent(state) -> Command:
+    return Command(
+        goto="technical",
+        graph=Command.PARENT,
+        update={"trail": ["billing handed off"]},
+    )
+\end{python}
+
+\begin{console}
+{'trail': ['billing handed off', 'technical handled it']}
+\end{console}
+
+That is the swarm pattern in one construct: the billing agent decided, on its
+own, that the technical agent should take over, and control moved without a
+router being consulted.
+
+\begin{warning}
+Remember Chapter~\ref{ch:stategraph}'s finding: annotate the return type as
+\code{Command[Literal["technical", ...]]} or the handoff edge does not appear in
+the drawn graph. In a multi-agent system that matters more than anywhere else,
+because the diagram is the only practical way to see the topology --- and an
+unannotated swarm draws as a set of disconnected agents.
+\end{warning}
+
+\subsection{Handoff loops}
+\label{sec:handoff-loops}
+
+The failure mode unique to swarms:
+
+\mermaidfig{ma-handoff-loop}{%
+  Two agents, each correctly identifying the other half of a mixed question as
+  outside its remit.}{%
+  A handoff loop, and why neither agent is wrong.}
+
+Neither agent is malfunctioning. A user who says ``I was charged twice and the
+app crashes'' has asked a question that genuinely spans both, and each agent
+correctly identifies the other half as somebody else's. The loop is a property of
+the routing rule, not of the model.
+
+Three defences, in order of preference: give one agent explicit ownership of
+mixed questions; count hops in state and force a decision after N; and set
+Chapter~\ref{ch:persistence}'s \code{recursion\_limit} as the backstop it is,
+rather than as a fix.
+
+% ============================================================
+\section{Structural cost, measured}
+\label{sec:structural-cost}
+\index{multi-agent!token economics}
+\index{measurement!structural cost}
+
+Here is the part that does not need a provider.
+
+\textbf{Method.} One fixed question. Five implementations, each answering it. The
+model is a fake that records every call --- how many, and how many characters of
+context each carried --- before replying from a fixed script. Because the script
+is fixed, the numbers are exactly reproducible; because call count is a property
+of the graph, a real model would make the same number of calls. The script is
+\code{code/ch11/structural\_cost.py} and runs in under a second.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrrrX@{}}
+\toprule
+\textbf{Topology} & \textbf{Model calls} & \textbf{Context chars} & \textbf{vs baseline} \\
+\midrule
+Single agent & 2 & 172 & 1.0$\times$ \\
+Pipeline (3 stages) & 3 & 243 & 1.4$\times$ \\
+Swarm (3 hops) & 3 & 240 & 1.4$\times$ \\
+Orchestrator + 3 workers & 5 & 393 & 2.3$\times$ \\
+Supervisor (2 workers) & 5 & 487 & 2.8$\times$ \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+Read these two columns with different levels of trust.
+
+\textbf{Model calls is a hard number.} It is determined by the topology, and a
+real provider makes exactly the same count.
+
+\textbf{Context chars is indicative.} It depends on how long the scripted replies
+are, and real replies are longer and vary. The \emph{ratios} hold for the
+structural reason given below; the absolute figures are an artefact of the
+script and should not be quoted.
+\end{warning}
+
+Three things are worth drawing out.
+
+\textbf{Supervisor costs more than orchestrator despite the same call count.}
+Both make five calls; the supervisor carries 2.8$\times$ the context against
+2.3$\times$. The reason is structural: every router turn re-reads the whole
+accumulating conversation, so a supervisor's context grows with each delegation
+while an orchestrator's workers each see only their own slice.
+
+\mermaidfig{ma-supervisor-turns}{%
+  Where a supervisor's five calls go. Three of them are routing rather than
+  work.}{%
+  Model calls per user turn under a supervisor.}
+
+\textbf{Swarm and pipeline cost essentially the same} --- 240 against 243. A
+handoff is not structurally more expensive than a fixed edge. What you pay for
+with a swarm is not tokens; it is traceability.
+
+\textbf{The single agent is the baseline for a reason.} Two calls. Every topology
+in the table is a multiple of it, and the multiple is the thing you have to
+justify.
+
+\begin{note}
+A useful way to hold this: with a supervisor, \textbf{three of five model calls
+are routing rather than work}. You are paying a full model call to decide who
+should do something, twice, plus one to compose the result. If the routing
+decision is obvious from the input --- and it very often is --- that is three
+calls spent on a problem a conditional edge solves for free.
+\end{note}
+
+\subsection{Model selection per role}
+\label{sec:model-per-role}
+
+The structural numbers suggest the obvious mitigation. Routing is a
+classification task and rarely needs the strongest model available; the work is
+where capability matters.
+
+Putting a cheap model on the supervisor and a strong one on the workers inverts
+the usual advice, and the measurement is why: the supervisor makes the most calls
+and carries the most context, so it is the most expensive seat in the topology.
+
+\begin{warning}
+That is a hypothesis with a cost model behind it, not a measured result. Whether
+a cheap router degrades routing quality enough to cost more in retries than it
+saves per call is exactly the sort of question \S\ref{sec:quality-experiment}
+exists to answer, and it has not been run. Treat the recommendation as judgement.
+\end{warning}
+
+% ============================================================
+\section{The quality experiment}
+\label{sec:quality-experiment}
+\index{measurement!multi-agent benchmark}
+
+\begin{warning}
+\textbf{This experiment has not been run.} Everything below is the specification,
+not results. The tables in Appendix~\ref{app:cheatsheet} are deliberately empty
+and stay empty until it has been. No comparative quality claim anywhere in this
+chapter is stated as fact.
+\end{warning}
+
+\textbf{Design.} One fixed task with a checkable answer. Six implementations: the
+single agent baseline and the five topologies. Model, temperature, instructions
+and tool set held constant across all six --- only the topology varies.
+
+\textbf{Metrics.} Turn count; token cost from \code{usage\_metadata}
+(Chapter~\ref{ch:models}); wall-clock latency; and success rate against the
+checkable answer.
+
+\textbf{Discipline.} At least twenty runs per implementation. Report medians and
+spreads, never best runs --- a topology that occasionally produces a brilliant
+answer and usually produces a poor one is worse than a consistent one, and a best
+run hides exactly that.
+
+\begin{note}
+\textbf{Keep the raw event streams, not just the summary rows.}
+Chapter~\ref{ch:observability} re-scores these same runs under an evaluation
+harness --- trajectory quality, tool-selection accuracy, whether the critic
+contributed anything --- and re-running to recover traces is expensive. Store
+them at the point of collection.
+
+The structural numbers in \S\ref{sec:structural-cost} give this experiment a
+prediction to test: if the supervisor does not score materially better than the
+single agent, it is spending 2.5 times the calls for nothing, and the chapter's
+recommendation becomes concrete rather than cautious.
+\end{note}
+
+% ============================================================
+\section{Debugging a multi-agent run}
+\label{sec:debugging-multi-agent}
+
+The honest difficulty: when a five-agent system gives a poor answer, the question
+``which agent went wrong'' is genuinely hard, because each agent's output is the
+next one's input and a small early error compounds.
+
+Three things make it tractable, all of them from earlier chapters.
+
+\textbf{Stream with subgraph namespaces.} Chapter~\ref{ch:stategraph}'s
+\code{subgraphs=True} tells you which level produced each update. Without it a
+composed graph reports only aggregate updates from its top-level nodes.
+
+\textbf{Name your agents.} \api{create\_agent} takes a \code{name}, and it
+appears in traces and in the \code{subagents} stream projection
+(Chapter~\ref{ch:interrupts}). Unnamed agents in a trace are indistinguishable.
+
+\textbf{Keep a trail in state.} An \code{Annotated[list, operator.add]} field
+that each agent appends its name to costs nothing and answers ``what actually
+ran, in what order'' without a tracing backend. Every listing in this chapter
+uses one.
+
+% ============================================================
+\section{The functional API}
+\label{sec:functional-api}
+\index{entrypoint@\texttt{@entrypoint}}
+\index{task@\texttt{@task}}
+
+Not every workflow wants to be a graph. When the control flow is naturally
+sequential and expressible in ordinary Python, \api{@entrypoint} and \api{@task}
+give you the same runtime without the builder:
+
+\begin{python}[caption={Same runtime, ordinary control flow}, label={lst:functional}]
+from langgraph.func import entrypoint, task
+
+
+@task
+def analyse(doc: str) -> str:
+    return expensive_analysis(doc)
+
+
+@entrypoint(checkpointer=checkpointer)
+def workflow(docs: list[str]) -> list[str]:
+    futures = [analyse(d) for d in docs]      # scheduled
+    return [f.result() for f in futures]      # resolved
+\end{python}
+
+\begin{console}
+['A', 'B', 'C']
+type of workflow: Pregel
+state after run : ['A', 'B', 'C']
+\end{console}
+
+The object is a \api{Pregel} --- the same runtime as a compiled graph, verified by
+\code{get\_state} returning the run's state afterwards. So checkpointing,
+interrupts and streaming all apply. \api{@task} takes the same
+\code{retry\_policy}, \code{cache\_policy} and \code{timeout} as a node
+(Chapter~\ref{ch:persistence}).
+
+\begin{note}
+The trade is visibility. A graph can be drawn, validated for reachability and
+inspected before it runs; a function cannot. Choose the functional API when the
+flow is genuinely linear and the branching is ordinary Python that would be
+awkward as edges --- and choose the graph when the topology is the thing you want
+to see, which in a multi-agent system it usually is.
+\end{note}
+
+% ============================================================
+\section{Seeing the topology}
+\label{sec:visualisation}
+\index{workflow!visualisation}
+
+Print the graph. It is one line, it is free, and by this chapter the answer stops
+being obvious:
+
+\begin{python}[caption={The topology, from the running code}, label={lst:draw}]
+print(graph.get_graph().draw_mermaid())
+print(graph.get_graph(xray=True).draw_mermaid())   # expand subgraphs too
+\end{python}
+
+\code{langgraph dev} serves a local development UI over a \code{langgraph.json},
+with LangGraph Studio for stepping through a run and inspecting state at each
+node. It is the most useful thing in the ecosystem for understanding somebody
+else's graph, and it is worth ten minutes.
+
+\needscreenshot{studio-multi-agent}{%
+  LangGraph Studio showing a supervisor topology mid-run.}{%
+  Run a supervisor graph under langgraph dev and open Studio. Capture the graph
+  panel with the supervisor node highlighted as the active one, with at least one
+  worker already completed, and the state inspector open on the right showing the
+  message list. The point of the capture is that the topology and the current
+  position are visible together, which is what a printed diagram cannot show.}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch11-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Multi-agent is a response to symptoms --- an unmanageable prompt, too many
+      tools, real parallelism, an independent critic. Not a default.
+\item Five topologies. A pipeline has no routing call and is the cheapest thing
+      that could work; try it first.
+\item Handoffs are \api{Command}, and across a subgraph boundary
+      \code{Command.PARENT}. Annotate the return type or the topology does not
+      draw.
+\item Handoff loops are a routing-rule defect, not a model defect. Give one agent
+      ownership of mixed questions.
+\item \textbf{Measured structural cost}, single agent as baseline: pipeline and
+      swarm 3 calls, orchestrator and supervisor 5. Supervisor carries the most
+      context because every router turn re-reads the whole conversation.
+\item With a supervisor, three of five model calls are routing rather than work.
+\item Model calls is a hard number; context size is indicative and
+      script-dependent.
+\item The quality half is unrun. Every comparative quality claim here is
+      judgement, and Appendix~\ref{app:cheatsheet} stays empty until it is not.
+\item The functional API is the same \api{Pregel} runtime with ordinary control
+      flow, trading visibility for directness.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Run \code{code/ch11/structural\_cost.py}. Then add a third worker to
+the supervisor and predict both columns before re-running. The call count should
+be exactly predictable; check whether your context prediction was as good.
+
+\textbf{2.} Build the handoff loop deliberately: two agents, a question that
+spans both, no hop limit. Watch it run until \code{recursion\_limit}. Then add
+a hop counter in state and force a decision.
+
+\textbf{3.} Take a supervisor graph and print it with and without
+\code{xray=True}. Then remove the \code{Command} return annotations and print
+again. Keep all three.
+
+\textbf{4.} Implement the same small task as a pipeline and as a supervisor.
+Measure both with the harness. Then ask whether the supervisor bought anything
+you could name --- and notice that you cannot answer that without
+\S\ref{sec:quality-experiment}.
+
+\textbf{5.} Rewrite one topology with \api{@entrypoint} and \api{@task}. Confirm
+\code{get\_state} still works, then try to draw it.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 08 --- the supervisor variant, and the comparison.} A supervisor
+build of Ops Copilot alongside the single-agent one, and the harness that runs
+both on one fixed task.
+
+Two requirements in \code{stages/08-multi-agent/README.md} carry the weight. The
+harness must report \textbf{medians and spreads over at least twenty runs}, never
+a best run. And it must persist \textbf{raw event streams}, not only summary
+rows, because Chapter~\ref{ch:observability} re-scores these same runs and
+re-running to recover traces is expensive.
+
+The structural half of the comparison can be built and tested immediately with
+the metered fake from \S\ref{sec:structural-cost} --- no provider, no budget, and
+it belongs in CI. The quality half waits for the experiment.
+\end{projectbox}

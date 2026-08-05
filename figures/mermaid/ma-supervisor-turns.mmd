@@ -1,0 +1,20 @@
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant S as Supervisor
+  participant A as Worker A
+  participant B as Worker B
+
+  U->>S: one question
+  Note over S: MODEL CALL 1 — which worker?
+  S->>A: delegate
+  Note over A: MODEL CALL 2 — do the work
+  A->>S: result
+  Note over S: MODEL CALL 3 — what next?
+  S->>B: delegate
+  Note over B: MODEL CALL 4 — do the work
+  B->>S: result
+  Note over S: MODEL CALL 5 — compose the answer
+  S-->>U: answer
+
+  Note over U,B: MEASURED: 5 model calls against the single agent's 2,<br/>and 2.8x the context, because every router turn<br/>re-reads the whole accumulating conversation.

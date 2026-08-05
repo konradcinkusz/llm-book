@@ -12,9 +12,9 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **Chapters 1, 3, 7, 8, 9 and 10 are written. The rest are not.** The
-> structure, build and diagram pipeline are in place and the book compiles clean
-> at 150 pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
+> **Chapters 1, 3, 7 and 8–11 are written. The rest are not.** Part III is
+> complete. The structure, build and diagram pipeline are in place and the book
+> compiles clean at 162 pages. Every unwritten chapter prints a visible *NOT YET WRITTEN* box carrying
 > its own brief, and CI reports the count on every build, so the page count never
 > flatters the state of the work.
 >
@@ -58,7 +58,7 @@ which over ninety per cent of wall-clock time is spent waiting on a network, and
 the interesting failure modes — a swallowed cancellation, an unbounded queue, a
 blocking call in a coroutine — show up in production rather than in a notebook.
 
-### Five experiments, one run
+### Five experiments, one and a half run
 
 The book's differentiator is meant to be original measurement rather than
 assertion. Five experiments are fully specified in the chapters; **one has been
@@ -80,9 +80,20 @@ A 16× difference from a one-line change — and `gather` and `TaskGroup` are
 indistinguishable, so that choice is about failure semantics and never about
 speed.
 
-The largest experiment still outstanding compares a single agent against all
-five multi-agent topologies on one fixed task — turn count, token cost, latency
-and success rate, twenty runs each, medians and spreads rather than best runs.
+**Experiment 5 (Chapter 11)** split in two, and the free half is done. Structural
+cost — model calls and context carried — is a property of the topology rather
+than the model, so a counting fake measures it exactly:
+
+| Topology | Model calls | vs baseline |
+|---|---|---|
+| Single agent | 2 | 1.0× |
+| Pipeline / swarm | 3 | 1.4× |
+| Orchestrator + 3 workers | 5 | 2.3× |
+| Supervisor (2 workers) | 5 | 2.8× |
+
+Three of a supervisor's five model calls are routing rather than work. What that
+buys in answer quality is the half that still needs a provider, and until it runs
+every comparative quality claim in the book stays labelled as judgement.
 
 ---
 
