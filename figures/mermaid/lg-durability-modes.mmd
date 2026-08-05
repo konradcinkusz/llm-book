@@ -1,0 +1,25 @@
+graph LR
+  subgraph sync["durability = 'sync'"]
+    A1["step"] --> A2["WRITE checkpoint"] --> A3["next step"]
+    AN["Safest. The next step cannot<br/>begin until the last is durable.<br/>Slowest: a write per step."]
+  end
+
+  subgraph async["durability = 'async' (default)"]
+    B1["step"] --> B2["next step"]
+    B1 -.->|"concurrently"| B3["write checkpoint"]
+    BN["Faster. A crash in the window<br/>between step and flush loses<br/>that step."]
+  end
+
+  subgraph exit["durability = 'exit'"]
+    C1["step"] --> C2["step"] --> C3["step"] --> C4["WRITE once, at the end"]
+    CN["Cheapest. A crash mid-run loses<br/>EVERYTHING. Not a durable run —<br/>a run that saves its answer."]
+  end
+
+  classDef n fill:#F4F6F8,stroke:#1F4E79
+  classDef good fill:#E8F4F0,stroke:#0E7C7B
+  classDef warn fill:#FDF3E0,stroke:#B26A00,color:#5A5A5A
+  classDef bad fill:#FBE9E9,stroke:#9B2C2C,color:#5A5A5A
+  class A1,A3,B1,B2,C1,C2,C3 n
+  class A2,B3,C4 good
+  class AN,BN warn
+  class CN bad

@@ -11,20 +11,20 @@ Read this before touching a chapter.
 |---|---|---|
 | Structure | main.tex, preamble, build, CI, mermaid pipeline | — |
 | Front matter | Title page, Introduction | — |
-| Chapters | **1, 3, 8** | 2, 4–7, 9–17, stubbed |
+| Chapters | **1, 3, 8, 9** | 2, 4–7, 10–17, stubbed |
 | Appendices | 0 written | A–F, all stubbed |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **116 pages**, **zero
-unresolved references**, **7 overfull hboxes, none above 10 pt**, **zero
-overfull vboxes**. Chapters 1, 3 and 8 are 46 of those pages; the rest is
+Build is clean: `latexmk -pdf main.tex` returns 0, **128 pages**, **zero
+unresolved references**, **9 overfull hboxes, none above 10 pt**, **zero
+overfull vboxes**. Chapters 1, 3, 8 and 9 are 58 of those pages; the rest is
 scaffolding.
 
 **Debt ledgers, reported by CI on every build:**
-- 20 chapters and appendices not yet written (`make stubs`)
+- 19 chapters and appendices not yet written (`make stubs`)
 - 0 screenshots requested so far
-- **0 `verifybox` blocks.** Every listing in Chapters 1, 3 and 8 was executed
+- **0 `verifybox` blocks.** Every listing in the written chapters was executed
   against the pinned versions, so none needed one. Keep it that way.
-- 11 Mermaid sources; all render
+- 14 Mermaid sources; all render
 
 **One of the five experiments has been run** (experiment 1, Chapter 3). The other
 four have not. See *Measurement debt* below.
@@ -260,10 +260,12 @@ pointing at whatever browser it finds; override with `make diagrams BROWSER=...`
 `--pdfFit` crops the page to the diagram — without it you get a US-Letter page
 with a small graph in the corner.
 
-Eleven diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
+Fourteen diagrams exist. Chapter 1 uses `lc-lg-layering`, `lc-timeline`,
 `lc-package-map`; Chapter 3 uses `async-event-loop`, `async-cold-coroutine`,
 `async-gather-vs-taskgroup`, `async-blocking-call`; Chapter 8 uses
-`lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`.
+`lg-superstep`, `lg-reducer-merge`, `lg-send-fanout`, `lg-state-context-config`;
+Chapter 9 uses `lg-replay-boundary`, `lg-checkpointer-vs-store`,
+`lg-durability-modes`.
 
 **Theme.** `figures/mermaid/config.json` matches the book's palette. Use it
 rather than styling inside each `.mmd`, so the diagrams stay a set.
@@ -446,6 +448,57 @@ retroactively explains why `add_messages` is id-keyed rather than a plain append
 - **`stream(..., subgraphs=True)`** yields `(namespace_tuple, update)` and is the
   first tool to reach for when a composed graph misbehaves.
 
+### Chapter 9 pass, August 2026
+
+**The source document was right about every one of Chapter 9's flagged gaps.**
+`RetryPolicy`, `CachePolicy`, `NodeTimeoutError`, `GraphRecursionError` and
+`RemainingSteps` all exist at the pinned version. Import paths:
+`langgraph.types` for the policies, `langgraph.errors` for the exceptions,
+`langgraph.managed` for `RemainingSteps`. Those items are now struck from the
+not-yet-verified list above. This is the first pass where the brief was not
+wrong about anything — worth noting, because it was wrong on the previous three.
+
+**One constraint that is chapter-grade and is documented nowhere else.** Node
+`timeout=` **only works on async nodes.** A sync node raises at run time:
+
+> `ValueError: Node timeouts are only supported for async nodes because sync
+> Python execution cannot be safely cancelled in-process. Node 'slow' is sync.`
+
+Async gives the expected `NodeTimeoutError: Node 'slow' exceeded its run timeout
+of 0.100s (elapsed: 0.101s).` This is the best error message in the library — it
+explains its own reasoning — and it is a concrete, enforced justification for the
+book's "async all the way down" convention. Reuse it in Chapter 13.
+
+**The replay demonstration works and is the chapter's centrepiece.** Crash a node
+after its side effect, resume, and the email is sent twice while the state log
+shows one send — the checkpoint protected the state, nothing protected the world.
+`nodes run: ['draft', 'send_email', 'send_email']` proves only the failed node
+replays. Both halves (broken and fixed) run in-process with `InMemorySaver` and
+no provider, so they are cheap to re-run and reusable in Chapter 14's testing
+material.
+
+**Confirmed, and reusable:**
+
+- `add_node` takes more than the brief listed: `defer`, `error_handler`,
+  `destinations`, `input_schema`, `metadata`, alongside `retry_policy`,
+  `cache_policy` and `timeout`. `destinations=` is a second way to declare a
+  `Command` node's targets — an alternative to Chapter 8's return annotation,
+  worth mentioning if that section is ever revised.
+- `Durability = Literal['sync','async','exit']`, and it is a per-invocation
+  argument on both `invoke` and `stream`.
+- `RetryPolicy` defaults: `max_attempts=3`, `initial_interval=0.5`,
+  `backoff_factor=2.0`, `max_interval=128.0`, `jitter=True`.
+- `CachePolicy(key_func, ttl)` needs a cache passed to `compile()` as well; a
+  policy with no cache configured does nothing, silently.
+- Missing `thread_id` raises `ValueError: Checkpointer requires one or more of
+  the following 'configurable' keys: thread_id, checkpoint_ns, checkpoint_id`.
+- `StateSnapshot` fields are `values, next, config, metadata, created_at,
+  parent_config, tasks, interrupts` — **Chapter 10 needs this** for time travel.
+- Store API is `get/put/search/delete/list_namespaces` plus async twins.
+  Namespace tuples isolate correctly; a different second element sees nothing.
+- `AsyncPostgresSaver` is in `langgraph.checkpoint.postgres.aio`. SQLite is a
+  separate distribution and is not installed in the mini-project.
+
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during
 an earlier pass.)*
@@ -479,10 +532,6 @@ declares `>=3.10`; `deepagents` declares `>=3.11`. So `\pymin` is correct at
   this and the source document is the only evidence for it.** Check first.
 - The exact middleware class names and their import path. The source document
   lists nine; confirm each exists and confirm the hook names.
-- Whether `RetryPolicy`, node-level `timeout=`, `NodeTimeoutError`,
-  `CachePolicy` and `RemainingSteps` are all present in `langgraph` 1.2.x and
-  where they import from. These are Chapter 9's flagged gaps and none of them is
-  attested anywhere except the source document.
 - `ConversationSplitters`-equivalent and the evaluation surface for Chapter 14.
   The source is thin here.
 

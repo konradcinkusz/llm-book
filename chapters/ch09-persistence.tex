@@ -10,45 +10,580 @@ same thing.
 This chapter is the strongest card in the deck for an engineer arriving from a
 distributed-systems background, because it is the one place where LangGraph is
 doing something you have already had to reason about: durable workflow execution
-with replay. The mechanism is straightforward. The consequence --- that resuming
-re-runs the whole node, including the model call, the HTTP request and the
-side effect --- is where systems break, and it is where most candidates and most
-tutorials stop.
+with replay.
 
-\chapterstub{
-\textbf{Argument.} The node boundary is the replay boundary. Everything after the
-last checkpoint executes again. Therefore side effects must be idempotent or
-isolated behind their own node, and non-deterministic values must be produced
-inside a checkpointed step rather than recomputed.
+The mechanism is straightforward and takes two pages. The consequence takes the
+rest of the chapter, and it is where systems break: \textbf{resuming re-runs the
+whole node}, including the model call, the HTTP request, and the side effect.
+Most tutorials stop at ``it survives a restart''. That is the easy half.
 
-\textbf{Sections.} (9.1) Checkpointer versus store: scope, contents, and the two
-kinds of memory. (9.2) The backends: in-memory, SQLite, Postgres, Redis --- and
-the async variants, with the failure mode of using a sync saver in an async
-service. (9.3) \code{thread\_id} as the primary key; what happens without one.
-(9.4) \api{Store}: long-term memory, namespacing, semantic search. (9.5) Memory
-types --- semantic, episodic, procedural --- and background writes. (9.6) Durable
-execution: replay, idempotency keys, the three durability modes
-(\code{sync}/\code{async}/\code{exit}) and what each trades. (9.7) Designing a
-node as a replay boundary, worked on a payment-like operation. (9.8) Node-level
-resilience --- \api{RetryPolicy}, \code{timeout=} on a node,
-\api{NodeTimeoutError}. (9.9) Loop control: \code{recursion\_limit},
-\api{GraphRecursionError}, \api{RemainingSteps}. (9.10) \api{CachePolicy} and
-deduplicating work across runs.
+Everything here was executed against the pinned versions. The duplicated email in
+\S\ref{sec:replay-boundary} is a real run, not an illustration.
 
-\textbf{Listings.} A conversation that survives a process restart, with the test
-that proves it; a deliberately induced crash mid-graph, showing the duplicated
-side effect and then the idempotency key that fixes it; retry and timeout policies
-on a flaky node; a recursion limit hit and diagnosed.
+% ============================================================
+\section{Two kinds of memory}
+\label{sec:checkpointer-vs-store}
+\index{checkpointer}
+\index{store}
+\index{memory!short-term versus long-term}
 
-\textbf{Diagrams.} \code{lg-checkpoint-timeline} --- supersteps and the
-checkpoints between them, with a crash and resume marked. \code{lg-replay-boundary}
---- what re-executes on resume, shaded over a node. \code{lg-checkpointer-vs-store}
---- the two scopes.
+Two mechanisms, routinely confused because both are described as ``memory''.
 
-\textbf{Mini-project.} Stage 06: \code{AsyncPostgresSaver}, a store for user
-preferences, an idempotency key on the email send, retry and timeout policies,
-and a restart-survival test.
+\mermaidfig{lg-checkpointer-vs-store}{%
+  One user, two conversations. Two independent checkpoint histories; one shared
+  store namespace.}{%
+  Checkpointer versus store: scope, contents and purpose.}
 
-\textbf{Source topics covered.} Part~IV 4.9--4.15. 4.13 and 4.14 are the source's
-top-priority gaps and get full sections here.
-}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+ & \textbf{Checkpointer} & \textbf{Store} \\
+\midrule
+Scope & One \code{thread\_id} & Across threads and users \\[3pt]
+Holds & A full state snapshot per superstep & JSON documents under a namespace
+        and key \\[3pt]
+For & Resume, replay, time travel & Preferences, profile, learned facts \\[3pt]
+Written & Automatically, by the runtime & Explicitly, by your code \\[3pt]
+Analogy & Short-term memory & Long-term memory \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The checkpointer is what makes a run survivable. The store is what makes an
+assistant remember that you prefer terse answers, three conversations later.
+
+\subsection{The store}
+\label{sec:store}
+
+The API is small, and it follows the \code{a}-prefix convention from
+Chapter~\ref{ch:models}: \code{get}, \code{put}, \code{search}, \code{delete},
+\code{list\_namespaces}, each with an async twin.
+
+\begin{python}[caption={Namespaced long-term memory}, label={lst:store}]
+from langgraph.store.memory import InMemoryStore
+
+store = InMemoryStore()
+namespace = ("prefs", "user-42")
+
+store.put(namespace, "tone", {"style": "terse", "language": "en"})
+store.put(namespace, "timezone", {"tz": "Europe/Madrid"})
+
+store.get(namespace, "tone").value
+store.search(namespace)
+store.search(("prefs", "user-99"))          # a different user
+\end{python}
+
+\begin{console}
+{'style': 'terse', 'language': 'en'}
+[('tone', {...}), ('timezone', {'tz': 'Europe/Madrid'})]
+[]                                          <- correctly isolated
+\end{console}
+
+The namespace is a tuple and it is the isolation boundary. Getting it wrong is
+how one tenant reads another's data, so treat the first element as a constant and
+the second as an authenticated identity --- never a value that arrived in a
+request body. Chapter~\ref{ch:security} returns to this.
+
+\begin{note}
+Long-term memory is usually classified three ways, and the vocabulary is worth
+having because it tells you what to store rather than how.
+\emph{Semantic} memory is facts (``works in the Madrid office'').
+\emph{Episodic} memory is events (``asked about incident 4471 last Tuesday'').
+\emph{Procedural} memory is learned behaviour (``prefers bullet points'').
+All three are documents in a store; the distinction is what you write and when,
+and the mistake is writing everything and searching it badly.
+\end{note}
+
+% ============================================================
+\section{The checkpointer}
+\label{sec:checkpointer}
+\index{thread\_id@\texttt{thread\_id}}
+
+One argument at compile time and one config key at run time:
+
+\begin{python}[caption={Adding persistence}, label={lst:checkpointer}]
+from langgraph.checkpoint.memory import InMemorySaver
+
+graph = builder.compile(checkpointer=InMemorySaver())
+
+config = {"configurable": {"thread_id": "user-42-conv-1"}}
+graph.invoke({"messages": [...]}, config=config)
+\end{python}
+
+\code{thread\_id} is the primary key. Everything --- resumption, history, time
+travel, human-in-the-loop --- hangs off it. Omit it and the graph refuses to run
+at all:
+
+\begin{console}
+ValueError: Checkpointer requires one or more of the following 'configurable'
+keys: thread_id, checkpoint_ns, checkpoint_id
+\end{console}
+
+\begin{note}
+That the error is loud rather than silent is worth appreciating. A framework that
+defaulted to some implicit thread would give you a service where every user
+shared one conversation, and you would find out from a support ticket.
+\end{note}
+
+\subsection{Rehydration is the point}
+\label{sec:rehydration}
+
+Surviving a crash inside one process is mildly interesting. Surviving into a
+process that never saw the original run is the property you actually deploy:
+
+\begin{python}[caption={A graph object that has never seen this conversation}, label={lst:rehydrate}]
+graph.invoke({"n": 0}, config=config)          # first run
+
+fresh = build_graph().compile(checkpointer=saver)   # rebuilt from scratch
+fresh.get_state(config).values
+\end{python}
+
+\begin{console}
+{'n': 1}
+\end{console}
+
+The second object was constructed independently and shares only the store behind
+the saver. It sees the state. That is what makes pods stateless in
+Chapter~\ref{ch:serving}: state lives in Postgres, so any pod can pick up any
+conversation.
+
+It also imposes a requirement people discover late: \textbf{graph construction
+must be a repeatable pure function}. If your builder reads a config file that has
+changed, or closes over a value that differs between pods, the rehydrated graph
+is not the graph that was checkpointed. Put graph construction in one function
+that takes no ambient state, and call it from everywhere.
+
+\subsection{The backends}
+\label{sec:backends}
+\index{checkpointer!backends}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Backend} & \textbf{Use} \\
+\midrule
+\code{InMemorySaver} & Tests and local development. See the warning below. \\[3pt]
+SQLite & Single-process applications, desktop tools, demos with real
+  persistence. Separate distribution. \\[3pt]
+Postgres & The production answer. Async variant in the \code{.aio} module of the
+  Postgres checkpoint distribution. \\[3pt]
+Redis & When checkpoint write latency is on your critical path and you accept
+  the durability trade. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+\code{InMemorySaver} does not survive a process restart and is not shared between
+pods. A conversation paused for human approval
+(Chapter~\ref{ch:interrupts}) simply ceases to exist when the pod is
+rescheduled --- and pods are rescheduled routinely, for reasons that have nothing
+to do with you.
+
+This is a real production incident, not a hypothetical, and it is easy to reach
+because \code{InMemorySaver} is what every tutorial uses and it works perfectly
+right up until it does not.
+\end{warning}
+
+\begin{warning}
+\textbf{Use the async saver in an async service.} A synchronous checkpointer in
+an async graph writes to the database with a blocking driver, which blocks the
+event loop, which stalls every other conversation in the process ---
+Chapter~\ref{ch:asyncio} measured that at a 10$\times$ latency penalty with no
+error and no log line. The async variants exist precisely for this and cost
+nothing to adopt.
+\end{warning}
+
+% ============================================================
+\section{Durable execution, and the part that bites}
+\label{sec:replay-boundary}
+\index{durable execution}
+\index{replay}
+\index{idempotency}
+
+State is written at every superstep boundary, so a crash resumes from the last
+committed boundary rather than from the beginning. That is durable execution and
+it is genuinely valuable.
+
+Now the consequence. \textbf{Resumption re-runs the failed node from its first
+line.} Not from the statement after the failure --- from the top. Everything the
+node did before it failed, it does again.
+
+Here is that, run rather than described. Two nodes; the second sends an email and
+then crashes:
+
+\begin{python}[caption={A node that fails after its side effect}, label={lst:duplicate}]
+OUTBOX: list[str] = []          # stands in for a real mail server
+
+
+def draft(state):
+    return {"log": ["drafted"]}
+
+
+def send_email(state):
+    OUTBOX.append(f"to:{state['recipient']}")     # THE SIDE EFFECT
+    if FAIL_ONCE["armed"]:                        # crash AFTER sending
+        FAIL_ONCE["armed"] = False
+        raise RuntimeError("network blip after send")
+    return {"log": ["sent"]}
+
+
+try:
+    graph.invoke({"recipient": "ops@example.com", "log": []}, config=config)
+except RuntimeError as e:
+    print("crashed:", e)
+print("outbox after crash :", OUTBOX)
+
+out = graph.invoke(None, config=config)           # resume
+print("outbox after resume:", OUTBOX)
+print("final log          :", out["log"])
+\end{python}
+
+\begin{console}
+crashed: network blip after send
+outbox after crash : ['to:ops@example.com']
+outbox after resume: ['to:ops@example.com', 'to:ops@example.com']
+final log          : ['drafted', 'sent']
+\end{console}
+
+Read those last two lines together, because the pairing is the whole lesson.
+\textbf{The outbox contains two emails. The log contains one \code{'sent'}.}
+
+The state is perfectly consistent. The failed attempt's update was never
+committed, so as far as the checkpoint is concerned the email was sent once. The
+world disagrees, and the world is right.
+
+\mermaidfig{lg-replay-boundary}{%
+  What re-executes on resume. The checkpoint protected the state; nothing
+  protected the world.}{%
+  The node as a replay boundary, with the measured outcome.}
+
+\begin{warning}
+\textbf{The node boundary is the replay boundary.} Everything after the last
+committed checkpoint executes again on resume --- model calls you are billed for,
+HTTP requests, database writes, emails.
+
+The framework cannot help you here and does not claim to. Nothing about a
+checkpointer makes a side effect safe; it makes the node \emph{re-runnable},
+which is a property of the node that you have to supply.
+\end{warning}
+
+\subsection{Designing the boundary}
+\label{sec:idempotency}
+
+The fix is an idempotency key: a value that identifies the \emph{intent}, checked
+before the effect and recorded with it.
+
+\begin{python}[caption={The same graph, made safe}, label={lst:idempotent}]
+def send_email(state):
+    key = state["idempotency_key"]
+    if key in already_sent:                  # the guard
+        return {"log": ["send skipped (already sent)"]}
+
+    OUTBOX.append(f"to:{state['recipient']}")
+    already_sent.add(key)
+    ...
+\end{python}
+
+\begin{console}
+emails sent : 1
+nodes run   : ['draft', 'send_email', 'send_email']
+final log   : ['drafted', 'send skipped (already sent)']
+\end{console}
+
+One email. And the \code{nodes run} line is worth pausing on: \code{draft} ran
+\textbf{once}, \code{send\_email} ran \textbf{twice}. Resumption replayed exactly
+the failed node and nothing before it. That is the granularity you are designing
+against.
+
+\begin{note}
+In a real system \code{already\_sent} is a uniqueness constraint in your
+database, not a Python set --- the guard has to survive the same crash the run
+did. The key should derive from the intent (\code{order-1234-notify}), not from
+the attempt, or every retry mints a fresh key and the guard never fires.
+
+If your downstream API supports an idempotency key natively, as most payment and
+messaging APIs do, pass it through and let them do the deduplication. That is
+strictly better than checking locally, because it closes the window between your
+check and your call.
+\end{note}
+
+\subsection{Three rules that follow}
+\label{sec:replay-rules}
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Isolate side effects in their own node.} A node that retrieves,
+      summarises and then emails will redo the retrieval and the summary --- and
+      pay for them --- to get back to the email. One effect, one node, and the
+      node does nothing else.
+\item \textbf{Make non-determinism a committed value.} \code{datetime.now()},
+      \code{uuid4()} and \code{random} produce a different answer on replay, so
+      anything downstream sees an inconsistency. Generate them in their own node
+      so the value is checkpointed, then read it from state.
+\item \textbf{Put the effect behind a gate.} An approval interrupt
+      (Chapter~\ref{ch:interrupts}) means the irreversible step runs only once a
+      person has said so --- which also caps how often replay can reach it.
+\end{enumerate}
+
+\begin{dotnetbox}
+This is exactly the Durable Functions and Temporal contract, and if you have
+written either you already have the instinct: activities must be idempotent,
+non-deterministic values come from the framework rather than the runtime, and the
+orchestration is replayed rather than resumed mid-instruction.
+
+One difference worth noting. Those frameworks replay the orchestrator from the
+beginning and serve prior activity results from history, so the orchestrator body
+runs many times. LangGraph re-runs only the node that failed, so the blast radius
+is smaller --- but it is also less obvious, because there is no framework rule
+forcing you to think about it.
+\end{dotnetbox}
+
+\subsection{Choosing how durable}
+\label{sec:durability-modes}
+\index{durability!modes}
+
+The \code{durability} argument on \code{invoke} and \code{stream} takes
+\code{"sync"}, \code{"async"} or \code{"exit"}.
+
+\mermaidfig{lg-durability-modes}{%
+  The three modes. The choice is per invocation, so the expensive one can be
+  reserved for the path that needs it.}{%
+  Durability modes and what each trades.}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Mode} & \textbf{Behaviour} & \textbf{A crash costs you} \\
+\midrule
+\code{"sync"} & Checkpoint written before the next step starts & Nothing since
+  the last step \\[3pt]
+\code{"async"} & Written concurrently with the next step & Possibly the last
+  step \\[3pt]
+\code{"exit"} & Written once, at the end & The entire run \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+It is a per-invocation argument, which is the useful part: run the path that
+sends email under \code{"sync"} and the read-only question-answering path under
+the default. \code{"exit"} is not a durable run; it is a run that saves its
+answer, and choosing it for a long agent loop means a crash at step nineteen
+discards nineteen steps of billed work.
+
+% ============================================================
+\section{Node-level resilience}
+\label{sec:node-resilience}
+\index{RetryPolicy@\texttt{RetryPolicy}}
+
+Three arguments on \api{add\_node} handle the failures that are not your fault.
+
+\subsection{Retries}
+\label{sec:retry-policy}
+
+\begin{python}[caption={Retrying a flaky dependency}, label={lst:retry}]
+from langgraph.types import RetryPolicy
+
+builder.add_node(
+    "call_api",
+    call_api,
+    retry_policy=RetryPolicy(max_attempts=5, initial_interval=0.5),
+)
+\end{python}
+
+The defaults are sensible and worth knowing rather than looking up:
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lrX@{}}
+\toprule
+\textbf{Field} & \textbf{Default} & \\
+\midrule
+\code{max\_attempts} & 3 & Attempts, not retries \\
+\code{initial\_interval} & 0.5\,s & First backoff \\
+\code{backoff\_factor} & 2.0 & Exponential \\
+\code{max\_interval} & 128\,s & Ceiling \\
+\code{jitter} & \code{True} & On by default, which is correct \\
+\code{retry\_on} & a default predicate & Which exceptions qualify \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{warning}
+A retry re-runs the node, so everything in \S\ref{sec:replay-boundary} applies
+with a shorter fuse. A \api{RetryPolicy} on a node with an unguarded side effect
+does not improve reliability --- it multiplies the defect by
+\code{max\_attempts}. Fix idempotency first, then add retries.
+\end{warning}
+
+\subsection{Timeouts, and a constraint worth the whole chapter}
+\label{sec:node-timeout}
+\index{NodeTimeoutError@\texttt{NodeTimeoutError}}
+
+\code{add\_node(..., timeout=10)} bounds a single attempt. On an async node it
+does what you expect:
+
+\begin{console}
+NodeTimeoutError: Node 'slow' exceeded its run timeout of 0.100s
+(elapsed: 0.101s).
+\end{console}
+
+On a \emph{synchronous} node it refuses to run at all:
+
+\begin{console}
+ValueError: Node timeouts are only supported for async nodes because sync
+Python execution cannot be safely cancelled in-process. Node 'slow' is sync.
+\end{console}
+
+\begin{note}
+That error message is the best piece of documentation in the library, because it
+explains itself. A synchronous node never yields, so there is no point at which a
+cancellation could be delivered --- exactly the argument
+Chapter~\ref{ch:cancellation} makes about \code{CancelledError} being injected at
+an await. The framework could have started a timer and silently done nothing when
+it expired. Instead it refuses, at the point where you would have been misled.
+
+It is also a concrete reason for the ``async all the way down'' rule that this
+book states as a convention: a sync node is not merely slower, it is a node you
+cannot put a deadline on.
+\end{note}
+
+\subsection{Caching}
+\label{sec:cache-policy}
+\index{CachePolicy@\texttt{CachePolicy}}
+
+\begin{python}[caption={Not paying twice for the same input}, label={lst:cache}]
+from langgraph.types import CachePolicy
+from langgraph.cache.memory import InMemoryCache
+
+builder.add_node("expensive", expensive, cache_policy=CachePolicy(ttl=60))
+graph = builder.compile(cache=InMemoryCache())
+\end{python}
+
+Three invocations with two distinct inputs executed the node twice. The cache key
+defaults to the node's input, so it is content-addressed; \code{key\_func}
+overrides that when the input contains something irrelevant, such as a request
+id.
+
+Note that a cache needs to be supplied at compile time as well as a policy per
+node. A \api{CachePolicy} with no cache configured does nothing, silently.
+
+% ============================================================
+\section{Stopping a runaway loop}
+\label{sec:recursion}
+\index{GraphRecursionError@\texttt{GraphRecursionError}}
+\index{RemainingSteps@\texttt{RemainingSteps}}
+
+A graph with a cycle can loop forever, and an agent whose tool keeps returning an
+error it cannot act on will do exactly that --- billing you per iteration.
+
+The backstop is \code{recursion\_limit}, a config key defaulting to 25:
+
+\begin{console}
+GraphRecursionError: Recursion limit of 5 reached without hitting a stop
+condition. You can increase the limit by setting the `recursion_limit`
+config key.
+\end{console}
+
+That is a crash, not a graceful exit. When the loop is expected --- a research
+agent that iterates until satisfied --- you want to stop \emph{before} the limit
+and return what you have. \api{RemainingSteps} is a managed value that tells a
+node how much budget is left:
+
+\begin{python}[caption={Exiting gracefully instead of crashing}, label={lst:remaining-steps}]
+from langgraph.managed import RemainingSteps
+
+
+class State(TypedDict):
+    n: int
+    remaining: RemainingSteps        # injected by the runtime
+
+
+def route(state) -> str:
+    return END if state["remaining"] <= 2 else "loop"
+\end{python}
+
+\begin{console}
+n=0 remaining=7
+n=1 remaining=6
+...
+n=5 remaining=2                       <- exits here, no exception
+\end{console}
+
+The field is populated by the runtime and counts down. Reserving a couple of
+steps leaves room for a summarise-and-finish node, which is the difference
+between a partial answer and a stack trace.
+
+\begin{warning}
+Raising \code{recursion\_limit} is almost never the fix. It is a symptom that the
+model cannot make progress --- usually because a tool returns an error it cannot
+act on, or two tools disagree. Chapter~\ref{ch:observability} finds the repeating
+step in a trace; Chapter~\ref{ch:agents}'s call-limit middleware caps the cost
+while you do. Treat the limit as an alarm rather than a setting.
+\end{warning}
+
+% ============================================================
+\section{What to take away}
+\label{sec:ch9-summary}
+
+\begin{itemize}[leftmargin=1.4em]
+\item Checkpointer is per-\code{thread\_id} short-term state, written by the
+      runtime. Store is cross-thread long-term documents, written by you.
+\item \code{thread\_id} is the primary key. Without it the graph refuses to run.
+\item Rehydration into a process that never saw the run is the property worth
+      having, and it requires graph construction to be a repeatable pure
+      function.
+\item \code{InMemorySaver} does not survive a restart or reach another pod. Use
+      the async saver in an async service, or you block the loop.
+\item \textbf{The node boundary is the replay boundary.} Measured: a crash after
+      a side effect sends the email twice while the state log shows one send.
+\item Guard effects with an idempotency key derived from the intent; isolate each
+      effect in its own node; generate non-deterministic values in a node so they
+      are checkpointed.
+\item \code{durability} is per invocation --- \code{"sync"} on the path that
+      matters, the default elsewhere, \code{"exit"} almost never.
+\item \api{RetryPolicy} multiplies an unguarded side effect. Fix idempotency
+      first.
+\item Node \code{timeout} works only on async nodes, and says so rather than
+      silently doing nothing.
+\item \api{RemainingSteps} exits gracefully where \code{recursion\_limit}
+      crashes. Raising the limit is not the fix.
+\end{itemize}
+
+\begin{exercisebox}
+\textbf{1.} Reproduce the duplicated email. Crash a node after its side effect,
+resume, and count. Then add the idempotency key and confirm you get one. Write
+the failing version first --- this is the exercise the whole chapter exists for.
+
+\textbf{2.} Print which nodes ran across the crash and the resume. Confirm that
+the node \emph{before} the failure did not re-run. Now move the side effect into
+that earlier node and see what changes.
+
+\textbf{3.} Put \code{datetime.now()} in a node, checkpoint, crash, resume, and
+find the inconsistency. Then move it to its own node and confirm the value is
+stable across replay.
+
+\textbf{4.} Try \code{timeout=} on a sync node and read the error properly. Then
+make the node async and watch it work. This is the shortest possible
+demonstration of why the book insists on async throughout.
+
+\textbf{5.} Build a graph that loops forever. Hit \api{GraphRecursionError}, then
+add \api{RemainingSteps} and exit with a partial answer instead. Decide which one
+you would rather page someone about.
+\end{exercisebox}
+
+\begin{projectbox}
+\textbf{Stage 06 --- persistence and durability.} The largest stage in the
+project: \code{AsyncPostgresSaver} as the checkpointer, a store for user
+preferences, retry and timeout policies on the flaky tools, and an idempotency
+key on the email send.
+
+Two tests in \code{stages/06-persistence/README.md} carry the weight. The first
+rehydrates a conversation into a graph object built fresh in a new object graph
+--- not a mocked restart. The second kills the run mid-node after the email
+send, resumes, and asserts exactly one email was sent; it must be written so it
+\emph{fails} before the idempotency key exists, because a fix nobody watched fail
+is a fix nobody has verified.
+\end{projectbox}
