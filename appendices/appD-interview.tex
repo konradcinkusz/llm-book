@@ -124,10 +124,13 @@ re-runs --- measured at twice.
 restart or reach another pod. A run paused for approval ceases to exist.
 
 \textbf{When multi-agent, and when not?} On symptoms: an unmanageable prompt, too
-many tools, real parallelism, an independent critic. Not by default --- measured
-structural overhead is 2.5$\times$ the model calls and 2.8$\times$ the context
-for a supervisor, and three of its five calls are routing rather than work
-(Ch.~\ref{ch:multi-agent}).
+many tools, real parallelism, an independent critic. Not by default --- a
+supervisor makes 2.5$\times$ the model calls, and three of its five calls are
+routing rather than work (Ch.~\ref{ch:multi-agent}). The call count is a hard
+number, because the topology determines it. The context multiple that goes with
+it, 2.8$\times$, is indicative rather than exact --- it moves with how long the
+replies are. Saying which of your numbers is which is worth more in an interview
+than the numbers.
 
 % ============================================================
 \section{Production and system design}
@@ -146,11 +149,14 @@ error. Measured in Chapter~\ref{ch:serving}, along with p50 staying flat at
 \textbf{The agent is looping. What do you do?} Find the repeating step in a
 trace. Return errors the model can act on rather than stack traces. Add a call
 limit. Use \api{RemainingSteps} to exit gracefully. Raising
-\code{recursion\_limit} is not a fix.
+\code{recursion\_limit} is not a fix --- and it is worth knowing that its
+default is 10007 rather than the 25 nearly everyone will say, so it is not
+functioning as a cost control unless you set it yourself.
 
 \textbf{How do you control cost?} The two large levers are design decisions:
 context strategy (measured 84\% from projecting tool results) and topology
-(measured 2.8$\times$). Then enforcement --- model per role, call limits, prompt
+(2.5$\times$ the model calls for a supervisor). Then enforcement --- model per
+role, call limits, prompt
 caching, per-conversation budget with an alert on the budget rather than the
 invoice.
 

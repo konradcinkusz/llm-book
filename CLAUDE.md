@@ -14,9 +14,10 @@ Read this before touching a chapter.
 | Chapters | **1–17, all drafted** | — |
 | Appendices | **A–F, all drafted** | — |
 
-Build is clean: `latexmk -pdf main.tex` returns 0, **241 pages**, **zero
+Build is clean: `latexmk -pdf main.tex` returns 0, **244 pages**, **zero
 unresolved references**, **21 overfull hboxes, none above 15 pt**, **zero
-overfull vboxes**.
+overfull vboxes**. The index and consistency passes are both done; neither
+changed the overfull multiset.
 
 **A full draft exists.** Every chapter and appendix is written. What remains is
 finishing, not drafting — see *What is left* at the bottom.
@@ -762,6 +763,95 @@ enough runs to beat variance, and the answer would be specific to one model
 version. The structural advice holds regardless; the numbers commonly quoted for
 this do not.
 
+### Consistency pass, August 2026
+
+Ran after the draft completed, because the appendices were written last and had
+never been checked against the chapters. maf-book's experience was that this
+finds outright errors, and it did here too.
+
+**One outright error, and it was in a chapter as well as an appendix.**
+`recursion_limit` does **not** default to 25. At the pinned `langgraph` it is
+**10007**:
+
+```python
+DEFAULT_RECURSION_LIMIT = int(getenv("LANGGRAPH_DEFAULT_RECURSION_LIMIT", "10007"))
+```
+
+25 was the pre-1.0 default. It is what the search results say, what the older
+documentation says, and what a model will state with complete confidence — which
+is exactly why it survived into two places here. Chapter 9 §9.5 asserted it in
+prose; Appendix C printed a **console block that had never been run**, quoting
+both the wrong number and a truncated message. Both are fixed, and Appendix C's
+block is now the real output.
+
+The argument improves rather than breaks. A backstop at 25 is a cost control; a
+backstop at 10007 is not one in any meaningful sense, so the chapter now tells
+the reader to set the limit explicitly, and `RemainingSteps` matters more, not
+less. Appendix E's contradiction list gained it as a seventh item — and it is
+the only entry there that the book itself got wrong, which makes it the best
+illustration of the rule the book keeps preaching.
+
+**Two milder inconsistencies, both the appendix hardening a hedge into a fact:**
+
+- **Appendix C stated the tool-count degradation threshold as measurement.**
+  "Degradation sets in around fifteen to twenty" — flat, unqualified. Chapter 6
+  is careful about exactly this: "the *commonly cited* threshold", plus a
+  warning box saying experiment 4 has not been run. Reworded to match the
+  chapter and to point at the unrun experiment.
+- **Appendix D quoted the 2.8× context multiple bare, twice.** The Chapter 11
+  notes say explicitly to mark it indicative wherever it appears, because it
+  moves with scripted reply lengths; Appendix B's table does say "indicative"
+  and Appendix D did not. Now it separates the hard number (2.5× the model
+  calls, topology-determined) from the soft one.
+
+**Checked and correct, so worth not re-checking:** every import path in
+Appendix B, verified by importing all seventeen modules and checking every name
+— including `from langsmith import evaluate, aevaluate, traceable`, which works
+as a top-level re-export as well as from `langsmith.evaluation`. Appendix A's
+counts (33 / 6 / 43 submodules) and its sub-package version lines
+(`langgraph-checkpoint` 4.1.1, `-prebuilt` 1.1.0, `-sdk` 0.4.2) are all right.
+Appendix C's other fifteen entries match their chapters, including the exact
+`InvalidUpdateError` and missing-`thread_id` error texts.
+
+**Method note.** The generalisable lesson is narrower than "check the
+appendices". It is: **a console block nobody ran is indistinguishable from one
+that was, and it is where a remembered number hides.** Appendix C's error
+survived a full draft because it *looked* like output.
+
+**So the sweep was run, not just recommended.** All 44 `console` blocks were
+listed and every one quoting library error text was re-triggered against the
+pinned packages: `InvalidUpdateError`, the missing-`thread_id` `ValueError`, the
+sync-node timeout `ValueError`, and `NodeTimeoutError`. All four reproduce
+verbatim, including `(elapsed: 0.101s)`. **Only the recursion block was wrong.**
+
+One deliberate and consistent trim to note: `InvalidUpdateError` and
+`GraphRecursionError` now append a `For troubleshooting, visit: <url>` line,
+which the book omits everywhere. That is an editorial choice about URLs in
+print, applied uniformly — not drift.
+
+### Index pass, August 2026
+
+**132 entries became 411** — the appendices had none at all, and Chapters 2, 6,
+16 and 17 had almost none. Entries are inserted immediately after
+`\label{sec:...}` anchors, which is deterministic, keeps them out of the prose,
+and indexes the page a section starts on.
+
+**Conventions, so later additions match.** APIs get a sort key,
+`\index{Name@\texttt{Name}}`. Concepts are lowercase with `!` subentries under a
+shared head; prefer an existing head to a new one. The heads now in use are
+`asyncio`, `troubleshooting`, `packages`, `middleware`, `state`, `streaming`,
+`evaluation`, `security`, `cost`, `measurement`, `tools`, `testing`, `typing`,
+`checkpointer`, `memory`, `migration`, `deployment`, `interview`, `cheat sheet`,
+`multi-agent`, `alternatives`, `.NET`, `timeout`, `cancellation`, `debugging`.
+
+**The two hard limits carried from maf-book both held.** Verbatim entries must
+stay under about 29 characters or they overflow the two-column index — the
+longest here is `FakeMessagesListChatModel` at 25, and the pass added zero
+overfull boxes, so the limit is real but 25 clears it. Package names still never
+fit and go under `packages!<name>`.
+
+The script that did it is disposable; the conventions above are not.
+
 *(As each further chapter is written against the source, record here anything
 that contradicted the brief — including contradictions of notes written during
 an earlier pass.)*
@@ -838,17 +928,19 @@ The remaining work is finishing, in rough priority order:
 2. **The mini-project.** Seventeen chapters of contracts and zero implemented
    stages. Stage 00's tests pass; everything else is a README stating what must
    be built. This is now the largest single body of outstanding work.
-3. **One screenshot**: `studio-multi-agent`.
-4. **An index pass.** The book has `\index{}` entries throughout but no
-   dedicated pass; maf-book's experience was that this roughly quintuples the
-   entry count and is worth a session of its own. Note its two hard limits:
-   verbatim entries must stay under about 29 characters or they overflow the
-   two-column index, and package names never fit.
-5. **A consistency pass.** Written chapter-by-chapter over several sessions, so
-   the appendices were drafted last and may disagree with chapters in places.
-   maf-book found two outright errors this way.
-6. Optional: a further-reading section; a glossary of the English terms alone,
+3. **One screenshot**: `studio-multi-agent`. Needs a live LangGraph Studio
+   session, so it cannot be done from a sandbox.
+4. Optional: a further-reading section; a glossary of the English terms alone,
    for readers who do not need the Polish column.
+
+**Done since the draft completed:** the index pass (132 → 411 entries) and the
+consistency pass (one outright error, two hedges the appendices had hardened
+into facts). Both are written up under *Resolved questions*.
+
+**One habit the consistency pass earned.** Search for `console` blocks that no
+listing actually produces. The `recursion_limit` error was wrong for a whole
+draft because a fabricated console block is indistinguishable from a real one,
+and that is precisely where a remembered number survives review.
 
 **Do not fill Appendix B's empty tables with plausible numbers.** They are empty
 on purpose and the emptiness is load-bearing.

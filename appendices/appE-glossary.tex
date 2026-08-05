@@ -93,7 +93,17 @@ visibly rather than silently.
 \item The summarisation middleware has no \code{max\_tokens\_before\_summary}.
 \item Node timeouts work only on async nodes, and say so.
 \item No in-box fake chat model implements \code{bind\_tools}.
+\item The default \code{recursion\_limit} is 10007, not 25.
 \end{itemize}
+
+The last of those was found during a consistency pass, and this book had printed
+the wrong number twice before anyone read the value out of the installed
+package. It is the cleanest illustration in the book
+of why the rule is worth keeping: 25 is not a guess, it is a \emph{memory} --- it
+was the default before 1.0, it is what the search results say, and it is what an
+assistant will tell you with complete confidence. A remembered fact and a
+verified one are indistinguishable from the inside, which is the entire argument
+for going and looking.
 
 \textbf{What is measured, and what is not.} Four experiments produced numbers,
 all reproducible without a provider: concurrency (Ch.~\ref{ch:asyncio}), service

@@ -491,13 +491,28 @@ node. A \api{CachePolicy} with no cache configured does nothing, silently.
 A graph with a cycle can loop forever, and an agent whose tool keeps returning an
 error it cannot act on will do exactly that --- billing you per iteration.
 
-The backstop is \code{recursion\_limit}, a config key defaulting to 25:
+The backstop is \code{recursion\_limit}, a config key. Set it to 5 and a runaway
+graph stops like this:
 
 \begin{console}
 GraphRecursionError: Recursion limit of 5 reached without hitting a stop
 condition. You can increase the limit by setting the `recursion_limit`
 config key.
 \end{console}
+
+\begin{warning}
+\textbf{The default is not 25.} At \lgver{} it is \textbf{10007}, read from
+\code{LANGGRAPH\_DEFAULT\_RECURSION\_LIMIT} and defaulting to that value in
+\code{langgraph.\_internal.\_config}. 25 was the pre-1.0 default and it is what
+almost every tutorial, answer and model still quotes --- this book had it wrong
+too until the value was read out of the installed package.
+
+The difference is not academic. A backstop at 25 is a cost control; a backstop
+at 10007 is not one in any meaningful sense, because an agent looping ten
+thousand times has already spent far more than anyone would have authorised.
+\textbf{Set it explicitly, per invocation, to a number you would be willing to
+pay for.}
+\end{warning}
 
 That is a crash, not a graceful exit. When the loop is expected --- a research
 agent that iterates until satisfied --- you want to stop \emph{before} the limit

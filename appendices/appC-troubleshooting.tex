@@ -123,17 +123,23 @@ in Chapter~\ref{ch:interrupts}. A node \emph{before} the gate is safe.
 \index{GraphRecursionError@\texttt{GraphRecursionError}}
 
 \begin{console}
-GraphRecursionError: Recursion limit of 25 reached without hitting a stop
-condition.
+GraphRecursionError: Recursion limit of 10007 reached without hitting a stop
+condition. You can increase the limit by setting the `recursion_limit`
+config key.
 \end{console}
 
 \textbf{Cause.} The loop exits only when the model stops requesting tools. Usually
 a tool returns an error the model cannot act on, so it retries forever.
 
+\textbf{Note the number.} The default is \textbf{10007}, not the 25 that is
+widely quoted (Ch.~\ref{ch:persistence}). If you are seeing this error at all,
+the run has already cost you a great deal --- so the useful fix is a limit you
+chose, not the one you inherited.
+
 \textbf{Fix, in order.} Find the repeating step in a trace. Return an error the
-model can act on rather than a stack trace. Add a call limit
-(Ch.~\ref{ch:agents}). Use \api{RemainingSteps} to exit gracefully. Raising
-\code{recursion\_limit} is not a fix.
+model can act on rather than a stack trace. Set \code{recursion\_limit}
+explicitly to a number you would pay for. Add a call limit
+(Ch.~\ref{ch:agents}). Use \api{RemainingSteps} to exit gracefully.
 
 % ============================================================
 \section{The model calls the wrong tool, or stops calling tools}
@@ -144,8 +150,12 @@ model can act on rather than a stack trace. Add a call limit
 \textbf{Cause, wrong tool.} The description. The name, docstring and field
 descriptions are the prompt (Ch.~\ref{ch:tools}).
 
-\textbf{Cause, stopped calling.} Too many tools. Degradation sets in around
-fifteen to twenty. Structural fixes only: a selector, subagents, or MCP.
+\textbf{Cause, stopped calling.} Too many tools. The commonly cited threshold is
+fifteen to twenty and it varies by model --- that figure is judgement rather
+than measurement here, because the book's fourth experiment has not been run
+(Ch.~\ref{ch:tools}). Treat it as a prompt to go and count your own tools, not
+as a number to design against. The fixes are structural regardless: a selector,
+subagents, or MCP.
 
 % ============================================================
 \section{Costs rose without a traffic change}
