@@ -1,6 +1,7 @@
 # LangChain, LangGraph and Async Python
 
 [![Build](https://github.com/konradcinkusz/llm-book/actions/workflows/build.yml/badge.svg)](https://github.com/konradcinkusz/llm-book/actions/workflows/build.yml)
+[![Pages](https://img.shields.io/github/deployments/konradcinkusz/llm-book/github-pages?label=docs)](https://konradcinkusz.github.io/llm-book/)
 [![Text: CC BY-NC-SA 4.0](https://img.shields.io/badge/text-CC%20BY--NC--SA%204.0-0E7C7B)](LICENSE-CONTENT)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-B26A00)](LICENSE)
 
@@ -12,12 +13,17 @@ Not an introduction to large language models, and not a Python tutorial. It
 assumes you have shipped services, know why idempotency matters on a retried
 request, and are now being asked to put an agent behind an API.
 
-> **A complete draft.** All seventeen chapters and six appendices are written —
-> 241 pages, building clean with no unresolved references.
+> **A complete draft, indexed and cross-checked.** All seventeen chapters and six
+> appendices are written — 244 pages, zero unresolved references, zero overfull
+> vboxes. A 411-entry index and a full consistency pass between the chapters and
+> the appendices are both done.
 >
 > **Every listing was executed against the pinned versions**, so nothing carries
 > a *run this before you trust it* marker. Where something could not be verified,
-> the text says so rather than rounding up.
+> the text says so rather than rounding up. The consistency pass found one place
+> where that discipline had slipped — a `recursion_limit` default asserted from
+> memory in an appendix, and wrong in exactly the way memory is wrong for this
+> ecosystem — and fixed it in both the chapter and the appendix that repeated it.
 >
 > What remains is finishing rather than drafting: three measurements that need a
 > provider budget, the mini-project's stages, and one screenshot. Each is counted
@@ -200,6 +206,17 @@ build, so a stale pin is visible rather than discovered by a reader.
 The conceptual material — the execution model, reducers, the replay semantics of
 a node, the economics of a supervisor — will outlive many minor versions. The
 exact import paths and keyword arguments will not.
+
+---
+
+## Links
+
+- **[Read the two-minute summary](https://konradcinkusz.github.io/llm-book/)** —
+  the same status, contents and measurement tables as this README, rendered.
+- **[Ops Copilot](https://github.com/konradcinkusz/llm-book-mini-project)** — the
+  mini-project this book builds one stage per chapter.
+- **[Microsoft Agent Framework for .NET Engineers](https://github.com/konradcinkusz/maf-book)**
+  — the companion volume for readers on the other stack.
 
 ---
 
