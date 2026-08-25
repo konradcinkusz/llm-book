@@ -28,6 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/configure-pages@v5
+        with:
+          # The very first deploy has no Pages site to look up yet, so
+          # configure-pages' "Get Pages site" call 404s and the job fails
+          # (seen on the run triggered by merging PR #1). enablement: true
+          # makes it create the site via the API instead of requiring someone
+          # to click it into existence in Settings first.
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
